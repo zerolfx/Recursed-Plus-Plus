@@ -11,6 +11,9 @@ struct GlobalState {
     std::string error;
 };
 GlobalState readGlobals(uintptr_t host, uintptr_t sourceRoom, const std::string& target);
+struct RoomReference {uintptr_t room=0;std::string name,error;int depth=-1;};
+RoomReference readRoomReference(uintptr_t host,uintptr_t sourceRoom,int ancestors);
+Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,const Snapshot& appearance);
 bool wetAt(const Snapshot& room, float x, float y);
 void applyGlobals(Snapshot& room, const GlobalState& state);
 }

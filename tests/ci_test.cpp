@@ -4,7 +4,9 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include "live_state_fixture.h"
 int main(){
+ testLiveRoomRead();
  const char* root="tests/fixtures";
  auto dry=peek::loadSnapshot(root,"missions/test","start",false);
  auto wet=peek::loadSnapshot(root,"missions/test","start",true);

@@ -1,8 +1,6 @@
 # Recursed++
 
-A Windows x86 mod that lets you inspect rooms inside chests, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep.
-
-![Native rendering of a nested room](docs/native-water.png)
+A Windows x86 mod that lets you inspect rooms inside chests and look back through return portals, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep.
 
 The preview now uses Recursed's original renderer for terrain, depth-dependent backgrounds, lighting, models, chest particles, key rotation, and water effects. Room state remains approximate; rendering fidelity and entry-state simulation are separate concerns.
 
@@ -30,32 +28,36 @@ The archive contains the mod, launcher, scripts, and authored test levels. It co
 
 | Input | Action |
 | --- | --- |
-| Hover over a chest | Show its destination layout |
+| Hover over a chest or return flame | Preview the room it leads to |
 | Left click | Pin the preview in the game window |
 | Shift + left click | Open a separate preview window |
 | O | Move the preview between the game and a separate window |
 | Click a chest inside the pinned preview | Explore another level, up to depth 8 |
-| Backspace | Return one level; close at the root |
-| W | Cycle automatic, forced dry, and forced wet conditions |
+| Click a red or green return flame | Look outside the room |
+| Backspace | Go back in preview history; close at the root |
 | Esc | Close the preview without pausing the game |
 | F8 | Toggle inspection |
 | F7 | Developer diagnostic: redraw the active room, not a chest destination |
 
-The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth, room name, and wet/dry conditions in its title. If an input method intercepts letter keys, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
+The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. If an input method intercepts letter keys, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
 
-The test menu includes **Preview Lab**, stock **Chests** and **Flood**, **State Lab** for wet/global state, and **Render Lab** for comparing the native room and its self-referencing preview.
+Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
+
+The test menu includes **Preview Lab** (including a room with both return flames), stock **Chests** and **Flood**, **State Lab** for wet/global state, and **Render Lab** for comparing the native room and its self-referencing preview.
 
 ## What is rendered
 
-Supported scenes create a private native Room, entities, and Renderer. The original rendering pipeline draws to a separate framebuffer at up to 30 Hz. Supported objects are chests, keys, locks, boxes, and crystal/diamond/ruby collectibles. Terrain and water surfaces use native tile definitions, not guessed sprite-frame indices.
+Supported scenes create a private native Room, entities, and Renderer. The original rendering pipeline draws to a separate framebuffer at up to 30 Hz. Supported objects are chests, keys, locks, boxes, crystal/diamond/ruby collectibles, and red/green return portals. Terrain and water surfaces use native tile definitions, not guessed sprite-frame indices.
 
-Physics does not advance. Objects remain at snapshot positions while visual effects animate. No player or return portal is created at the entrance. Rooms containing unsupported objects, such as jars, cauldrons, or birds, use the resource-based fallback renderer and display `FALLBACK`; the separate window reports the reason.
+Fresh destination objects use the original collision-aware spawn placement, including its twenty downward steps of 0.05 tiles for eligible bodies. This fixes objects hovering just above the floor. Ongoing gravity and buoyancy are not fast-forwarded; visual effects animate after placement. Existing outer-room objects retain their captured positions. No gameplay player is constructed in the preview.
 
-![Native keyroom preview](docs/native-destination.png)
+Rooms containing unsupported objects, such as jars, cauldrons, or birds, use the resource-based fallback renderer. Normal UI shows navigation and actionable errors, without implementation labels or manual water controls.
 
 The first level reads the actual chest's wet flag. Deeper levels infer wetness from snapshot tiles. Saved global objects replace initial declarations, and self-referencing previews read the current room's global objects. Held or destroyed objects are excluded where identified. Unvisited rooms retain their initial declarations.
 
-The preview is **not a live simulation of an existing destination instance**. Ordinary chest entry constructs a fresh room in the original game, so the initial room script remains relevant even with native rendering. Collision resolution during global restoration, carried-item script branches, consecutive hypothetical entries, preserved jar instances, and cauldron rules are not fully modeled. The UI therefore retains `APPROXIMATE` state labels. The main game continues running while you inspect.
+An open preview resamples relevant game state on the render thread and redraws at up to 30 Hz. Outside previews read the real room stack, tiles, and entities, so moved or removed objects are reflected. Inside previews refresh saved globals and the source chest's liquid state. A changed root destination or liquid branch resets deeper navigation. Live/global chests along a nested path are also revalidated: water changes update the branch and a removed chest returns to its parent. A missing root source or room transition closes the preview. The main game continues running while you inspect.
+
+Ordinary chest entry constructs a fresh room, so local objects inside a hypothetical destination still come from its room script. Outer previews use existing room instances. Carried-item branches, consecutive hypothetical entries, preserved jar instances, and cauldron rules are not fully modeled. Outer objects are reconstructed for display, so orientation and particle phase need not match the original instance exactly. See the [validation notes](docs/validation.md) for tested behavior and remaining GUI checks.
 
 ## Build from source
 

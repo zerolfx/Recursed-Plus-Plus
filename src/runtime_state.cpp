@@ -47,6 +47,7 @@ void collect(GlobalState& result, const std::vector<uint32_t>& entities, uintptr
     for (auto e : entities) {
         if (e == held || read<uint8_t>(e + 0x44) || !read<uint8_t>(e + 0x45)) continue;
         Object object;
+        object.sourceId=e;
         object.kind = entityKind(e);
         object.x = read<float>(e + 8); object.y = read<float>(e + 12); object.global = true;
         if (!std::isfinite(object.x) || !std::isfinite(object.y)) throw std::runtime_error("Invalid object position");
@@ -90,6 +91,59 @@ GlobalState readGlobals(uintptr_t host, uintptr_t sourceRoom, const std::string&
     } catch (const std::exception& error) {
         result = {}; result.error = error.what();
     }
+    return result;
+}
+
+RoomReference readRoomReference(uintptr_t host,uintptr_t sourceRoom,int ancestors){
+    RoomReference result;
+    try {
+        if(!host||!sourceRoom||ancestors<0||ancestors>4095)throw std::runtime_error("Invalid ancestor request");
+        auto begin=pointer(host+0x54),end=pointer(host+0x58);
+        if(end<=begin||(end-begin)%28||(end-begin)/28>4096)throw std::runtime_error("Invalid room stack");
+        if(pointer(end-4)!=sourceRoom)throw std::runtime_error("Scene changed");
+        int count=(end-begin)/28;
+        if(ancestors>=count)throw std::runtime_error("Already at the outermost room");
+        auto entry=end-28*(ancestors+1);
+        result.name=oldString(entry);result.room=pointer(entry+24);result.depth=count-ancestors-1;
+        if(!result.room)throw std::runtime_error("Missing ancestor room");
+    }catch(const std::exception& e){result={};result.error=e.what();}
+    return result;
+}
+
+Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,const Snapshot& appearance){
+    Snapshot result=appearance;result.tiles={};result.objects.clear();result.error.clear();result.hasGlobals=false;result.live=true;
+    try {
+        auto reference=readRoomReference(host,sourceRoom,ancestors);
+        if(!reference.error.empty())throw std::runtime_error(reference.error);
+        result.nativeDepth=reference.depth;auto room=reference.room;
+        if(read<int>(room)!=20||read<int>(room+4)!=15)throw std::runtime_error("Unsupported live room size");
+        auto tiles=pointer(room+8),tilesEnd=pointer(room+12);
+        if(tilesEnd<tiles||tilesEnd-tiles!=300*12)throw std::runtime_error("Invalid live tiles");
+        auto defs=pointer(host+0x40),defsEnd=pointer(host+0x44);
+        if(defsEnd<defs||(defsEnd-defs)%20||(defsEnd-defs)/20>4096)throw std::runtime_error("Invalid tile definitions");
+        result.tileset=oldString(host+8);result.pattern=oldString(host+0x20);
+        for(size_t i=0;i<300;i++){
+            auto& tile=result.tiles[i];tile.nativeIndex=read<int>(tiles+i*12);tile.kind=read<int>(tiles+i*12+4);
+            if(tile.nativeIndex<0||(unsigned)tile.nativeIndex>=(defsEnd-defs)/20||tile.kind<0||tile.kind>5)throw std::runtime_error("Invalid live tile index");
+            auto definition=defs+tile.nativeIndex*20;
+            auto frames=pointers(definition+4);tile.frame=frames.empty()?0:(int)frames.front();
+        }
+        auto held=pointer(pointer(host+4)+4);
+        for(auto e:pointers(room+0x14)){
+            if(e==held||read<uint8_t>(e+0x44))continue;
+            auto kind=entityKind(e);
+            if(kind=="player"||kind=="surface")continue;
+            if(kind=="door")kind=read<uint8_t>(e+0x58)?"yield":"player";
+            if(kind=="crystal"){
+                auto variant=read<int>(e+0x54);if(variant==1)kind="diamond";else if(variant==2)kind="ruby";
+            }
+            Object object{kind,"",read<float>(e+8),read<float>(e+12),read<uint8_t>(e+0x45)!=0};
+            object.sourceId=e;
+            if(!std::isfinite(object.x)||!std::isfinite(object.y))throw std::runtime_error("Invalid live object position");
+            if(kind=="chest")object.target=oldString(e+0x4c);
+            result.hasGlobals|=object.global;result.objects.push_back(std::move(object));
+        }
+    }catch(const std::exception& e){result.tiles={};result.objects.clear();result.error=e.what();}
     return result;
 }
 

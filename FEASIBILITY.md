@@ -14,6 +14,7 @@ The executable uses MSVC 2013, SFML 2, Lua 5.2.4, GLEW, and OpenGL. It exposes n
 | Address or import | Role |
 | --- | --- |
 | Chest vtable slot `0x47AD80`, function `0x411730` | Observe chest transforms; position at +0x08/+0x0C, destination string at +0x4C |
+| Door vtable slot `0x47AF24`, function `0x413600` | Observe red/green return portals and resolve the parent room |
 | `0x440A20` | Observe real room construction and invalidate preview state |
 | SFML `Window::display` | Draw the inspection UI |
 | SFML `Window::pollEvent` and keyboard query | Navigation and separate-window input isolation |
@@ -33,7 +34,9 @@ Ordinary entry at `0x43FCE0` allocates a new 0xA0-byte Room at `0x43FE66`, adds 
 - Room +0x14 is the entity vector. Entity +0x45 marks global objects; +0x44 marks pending destruction. The held item is referenced through host +0x04, context +0x04, and is excluded.
 - Self-reference reads globals from the active Room because actual entry saves them before constructing the destination.
 
-Readers use bounded container walks and read-only memory copies. Failures fall back to an explicitly labeled initial layout. Collision decisions in `0x41C130`, carried-item script branches, and future global changes along a hypothetical preview path remain approximate.
+Readers use bounded container walks and read-only memory copies. Failed state reads report an unavailable preview. Carried-item script branches and future global changes along a hypothetical preview path remain approximate.
+
+Existing ancestors are sampled by stack record, not by room name. Native tile indices come directly from their 12-byte tile entries; host +0x40 contains 20-byte tile definitions. RTTI identifies Door portals (variant byte +0x58), Surface entities (regenerated from tiles), and crystal variants (+0x54). These reads are repeated for open previews.
 
 ## Native rendering
 
@@ -57,7 +60,7 @@ Renderer constructor `0x4335D0` creates an internal 0x10C-byte object; destructo
 
 Room constructor is `0x440120`, destructor `0x41BBD0`. Tile entries are 12 bytes. The first field is a **native tile definition index**, not the PNG sprite frame. Snapshot tile names are resolved through host +0x4C, a `map<string,int>`. This distinction fixed incorrect pipe and wall textures in the initial experiment.
 
-`0x41BD30` computes tile edges and creates native water-surface entities. Its mutation of the room serial at `0x48C580` is restored; the private renderer uses a private room ID. Entity insertion through `0x41C130` disables collision-settling iterations. The full Room update at `0x41C8C0` is never called for previews.
+`0x41BD30` computes tile edges and creates native water-surface entities. Its mutation of the room serial at `0x48C580` is restored; the private renderer uses a private room ID. Host spawn at `0x4409A0` and global restoration at `0x440CD0` pass `(entity.flags & 0x21) != 0` to Room insertion at `0x41C130`. After checking initial overlap, insertion performs twenty downward moves of 0.05 tiles using collision movement at `0x41CC80`. Fresh preview entities now reuse that behavior; initially rejected objects are removed and destroyed. Live ancestor copies disable this placement and retain captured coordinates. The full Room update at `0x41C8C0` is never called for previews.
 
 | Entity | Constructor | Bytes |
 | --- | --- | --- |
@@ -66,10 +69,11 @@ Room constructor is `0x440120`, destructor `0x41BBD0`. Tile entries are 12 bytes
 | Key | `0x416210` | 0x50 |
 | Lock | `0x416790` | 0x50 |
 | Crystal variants | `0x412580` | 0x5C |
+| Door / return portal | `0x412E00` | 0x5C |
 
 Old MSVC strings use the game's constructors/destructors; all native allocations use the matching game CRT. The preview owns its stack and entities, borrows immutable level metadata, and never destroys the borrowed host. Room destruction detaches entities and destroys containers; entity destruction is a separate ownership step.
 
-Only key spin and draw transforms advance, alongside native renderer effects. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. Player and return-portal construction remain unimplemented. Unsupported entity kinds use the resource-rendering fallback.
+Only key spin and draw transforms advance, alongside native renderer effects. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. The `player` script declaration creates only a Door in the preview; `yield` creates its green variant. A private empty entry context is sufficient for the audited constructor, attach, draw, and destructor paths. Gameplay portal update/interaction and Player construction are never invoked. Unsupported entity kinds use the resource-rendering fallback.
 
 ## Validation boundary
 

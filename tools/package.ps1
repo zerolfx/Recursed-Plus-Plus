@@ -9,7 +9,7 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 $files = @(
     'build/recursed_peek.exe', 'build/recursed_peek.dll',
     'Start-Preview.cmd', 'README.md', 'THIRD_PARTY_NOTICES.md', 'DESIGN.md', 'FEASIBILITY.md',
-    'docs/validation.md', 'docs/native-destination.png', 'docs/native-water.png',
+    'docs/validation.md',
     'tools/prepare-runtime.ps1', 'tools/backup-saves.ps1', 'tools/verify-backup.ps1',
     'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/nexus.lua'
 )

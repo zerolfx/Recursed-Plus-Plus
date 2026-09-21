@@ -15,6 +15,10 @@ int main(){
  assert(c.tileset=="tiles/cave"&&c.pattern=="backgrounds/checker");
  assert(c.tiles[0].frame==8&&c.tiles[0].kind==1);
  assert(a.tiles[9*20+10].definition=="brick_u"&&b.tiles[11*20+9].definition=="watersurface");
+ auto portals=peek::loadSnapshot("runtime","missions/peek-lab","portals",false);
+ assert(portals.error.empty()&&portals.objects.size()==3);
+ assert(portals.objects[0].kind=="player"&&portals.objects[0].x==3&&portals.objects[0].y==12);
+ assert(portals.objects[1].kind=="yield"&&portals.objects[1].x==10&&portals.objects[2].target=="pool");
  for(const auto& kind:{"chest","key","box","crystal","cauldron","jar"}){
    auto mesh=peek::loadMesh("runtime",std::string(kind)=="jar"?"yield":kind,kind);
    if(!mesh.error.empty())std::cerr<<kind<<": "<<mesh.error<<"\n";

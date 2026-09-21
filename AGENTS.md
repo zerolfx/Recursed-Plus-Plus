@@ -1,0 +1,8 @@
+# Project instructions
+
+- Keep repository content in English and use Conventional Commits.
+- Before taking screenshots, move the pointer outside the captured game or preview content. Do not include the agent's cursor in published screenshots. Verify the captured result before saving it as an artifact.
+- Keep player-facing UI focused on rooms, depth, navigation, and actionable errors. Do not display renderer names, engine details, implementation status, or debugging labels during normal play.
+- Derive water conditions from game state. Do not add manual wet/dry controls to the player interface.
+- Open previews must refresh when their source state changes. Read existing outer-room instances; ordinary chest destinations must follow fresh-entry semantics and saved global state. Close invalid previews instead of retaining stale object pointers.
+- Test against the isolated runtime and profile. Preserve save backups and keep game files, saves, dependencies, and build artifacts out of version control.

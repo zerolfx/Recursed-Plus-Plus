@@ -18,6 +18,7 @@ static bool destination=false;
 static thread_local bool working=false;
 static uintptr_t sourceHost=0;
 static Snapshot scene;
+static Snapshot renderedSnapshot;
 static std::string sceneKey,renderedKey;
 static int sceneDepth=1;
 static uint64_t lastSceneTick=0;
@@ -80,7 +81,7 @@ static void __fastcall renderHook(void* renderer,void*,void* context){
    if(drawable)original(selected,copy.data());working=false;auto after=coreHash(renderer);
    if(before!=after||!before){disabled=true;requested=false;art.pixels.clear();status="Native preview disabled: gameplay audit failed";}
    else if(!drawable){art.pixels.clear();status=nativeSceneError();}
-   else if(before&&before==after){readback();renderedKey=sceneKey;status="Native renderer: live room stack and entity fields unchanged";if(destination)art.note="Original engine / isolated destination scene / physics frozen";}
+   else if(before&&before==after){readback();renderedKey=sceneKey;status="Native renderer: live room stack and entity fields unchanged";if(destination){renderedSnapshot=nativeSceneSnapshot();art.note=scene.live?"Original engine / captured outer room / physics frozen":"Original engine / native spawn settling / physics frozen after placement";}}
   }else status="Native replay target unavailable";
  }
  // The normal draw runs last, restores the engine's expected render state and presents normally.
@@ -99,5 +100,6 @@ const RoomArt* nativeMirrorArt(){return art.pixels.empty()?nullptr:&art;}
 const std::string& nativeRenderStatus(){return status;}
 void requestNativeDestination(uintptr_t host,const Snapshot& snapshot,const std::string& key,int pathDepth){if(key!=sceneKey||host!=sourceHost||pathDepth!=sceneDepth){art.pixels.clear();lastSceneTick=0;}sourceHost=host;scene=snapshot;sceneKey=key;sceneDepth=pathDepth;destination=true;requested=!disabled;}
 const RoomArt* nativeDestinationArt(const std::string& key){return destination&&renderedKey==key&&!art.pixels.empty()?&art:nullptr;}
+const Snapshot* nativeDestinationSnapshot(const std::string& key){return nativeDestinationArt(key)?&renderedSnapshot:nullptr;}
 bool nativeRenderWork(){return working;}
 }

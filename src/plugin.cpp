@@ -25,7 +25,7 @@ static char profilePath[MAX_PATH];
 static bool enabled=true,glReady=false;
 static bool bufferedTestInput=false;
 static bool nativeTest=false,queuedNative=false;
-static bool queuedClick=false,queuedBack=false,queuedWet=false,queuedToggle=false;
+static bool queuedClick=false,queuedBack=false,queuedToggle=false;
 static bool queuedOpen=false,queuedClose=false,clickPopout=false,suppressEscape=false;
 static HWND gameWindow=nullptr;
 static uint64_t keyUntil[128]{};
@@ -34,13 +34,12 @@ static uint64_t frame=0;
 static void log(const char* fmt,...);
 static std::string missionPath,gameRoot;
 static uintptr_t roomHost=0;
-struct ChestView{uintptr_t id;float x,y;std::string room;uintptr_t owner;bool wet;};
+struct ChestView{uintptr_t id;float x,y;std::string room;uintptr_t owner;bool wet;bool outward=false;};
 static std::vector<ChestView> chests;
 static bool pinned=false,previewWet=false;
-static int wetMode=0; // 0 automatic, 1 dry comparison, 2 wet comparison
 static uintptr_t pinnedId=0;
 static uintptr_t hoveredId=0;
-struct PreviewStep {std::string room;bool wet=false;};
+struct PreviewStep {std::string room;bool wet=false;int ancestors=-1;int renderDepth=-1;uintptr_t chestId=0;peek::Snapshot parentSnapshot{};};
 static std::vector<PreviewStep> previewPath;
 static peek::Snapshot preview,templatePreview;
 static std::string previewKey;
@@ -81,6 +80,17 @@ static bool hookImport(const char* dll,const char* name,void* hook,void** origin
 }
 using ChestTransform=void(__thiscall*)(void*);
 static ChestTransform originalChestTransform;
+static ChestTransform originalExitTransform;
+static void __fastcall exitTransformHook(void* object,void*){
+    originalExitTransform(object);
+    if(peek::nativeRenderWork()||!roomHost||chests.size()>128)return;
+    const auto* b=(const unsigned char*)object;auto owner=*(uintptr_t*)(b+4);
+    auto parent=peek::readRoomReference(roomHost,owner,1);if(!parent.error.empty())return;
+    ChestView item{(uintptr_t)object,*(const float*)(b+8),*(const float*)(b+12),parent.name,owner,false,true};
+    if(!std::isfinite(item.x)||!std::isfinite(item.y))return;
+    auto it=std::find_if(chests.begin(),chests.end(),[&](const ChestView& c){return c.id==item.id;});
+    if(it==chests.end())chests.push_back(item);else *it=item;
+}
 static void __fastcall chestTransformHook(void* object,void*){
     originalChestTransform(object);
     if(peek::nativeRenderWork())return;
@@ -94,7 +104,7 @@ using BuildRoom=uintptr_t(__thiscall*)(void*,void*,void*,uint32_t);
 static BuildRoom originalBuildRoom;
 static uintptr_t __fastcall buildRoomHook(void* host,void*,void* tiles,void* name,uint32_t wet){
     peek::requestNativeMirror(false);nativeTest=false;
-    roomHost=(uintptr_t)host;wetMode=0;
+    roomHost=(uintptr_t)host;
     auto tileset=oldString((char*)host+8);auto room=oldString(name);
     log("Build room tileset=%s room=%s wet=%u",tileset.c_str(),room.c_str(),wet&255);
     pinned=false;previewPath.clear();previewKey.clear();chests.clear();return originalBuildRoom(host,tiles,name,wet);
@@ -135,7 +145,6 @@ static bool __fastcall pollEventHook(void* window,void*,void* event){
         if(key==91)queuedNative=true; // F7: original-renderer diagnostic
         if(key==92)queuedToggle=true; // F8
         if(key==59)queuedBack=true;   // Backspace
-        if(key==22)queuedWet=true;    // W
     }
     if(e[0]==9&&e[1]==0){queuedClick=true;clickPopout=(GetKeyState(VK_SHIFT)&0x8000)!=0;}
     return result;
@@ -177,62 +186,98 @@ static void imageQuad(float x,float y,float w,float h){
     Vertex v[6]={{l,t,1,1,1,1,0,0,1},{r,t,1,1,1,1,1,0,1},{l,b,1,1,1,1,0,1,1},{l,b,1,1,1,1,0,1,1},{r,t,1,1,1,1,1,0,1},{r,b,1,1,1,1,1,1,1}};vertices.insert(vertices.end(),v,v+6);
 }
 static bool dismissedHover=false;
-static void clearPreview(){nativeTest=false;peek::requestNativeMirror(false);pinned=false;previewPath.clear();previewKey.clear();wetMode=0;dismissedHover=true;peek::closePreviewWindow();}
-static void enterPreview(const peek::Object& o){if(previewPath.size()<8&&!o.target.empty()){previewPath.push_back({o.target,peek::wetAt(preview,o.x,o.y)});wetMode=0;log("Nested preview %s depth=%zu",o.target.c_str(),previewPath.size());}}
+static void clearPreview(){nativeTest=false;peek::requestNativeMirror(false);pinned=false;previewPath.clear();previewKey.clear();dismissedHover=true;peek::closePreviewWindow();}
+static bool previewPortal(const peek::Object& o){return o.kind=="player"||o.kind=="yield";}
+static void enterPreview(const peek::Object& o){
+    if(previewPath.empty())return;
+    if(previewPortal(o)){
+        if(previewPath.back().ancestors<0&&previewPath.size()>1){previewPath.pop_back();return;}
+        if(previewPath.size()>=8)return;
+        int up=previewPath.back().ancestors+1;
+        uintptr_t owner=0;for(const auto& c:chests)if(c.id==pinnedId)owner=c.owner;
+        auto parent=peek::readRoomReference(roomHost,owner,up);
+        if(parent.error.empty()){previewPath.push_back({parent.name,false,up,parent.depth});}
+    }else if(o.kind=="chest"&&previewPath.size()<8&&!o.target.empty()){
+        previewPath.push_back({o.target,peek::wetAt(preview,o.x,o.y),-1,preview.nativeDepth<0?-1:preview.nativeDepth+1,o.sourceId,preview});
+    }
+}
+static PreviewStep rootStep(const ChestView& c){return {c.room,c.wet,c.outward?1:-1,-1};}
 static const peek::RoomArt* currentArt=nullptr;
-static void drawPreview(POINT mouse,bool clicked,bool back,bool wetToggle,bool open,bool close){
+static void drawPreview(POINT mouse,bool clicked,bool back,bool open,bool close){
     auto action=peek::pumpPreviewWindow();
     if(action.action!=peek::PreviewAction::None)log("Preview window action=%d depth=%zu",(int)action.action,previewPath.size());
     if(close||action.action==peek::PreviewAction::Close){clearPreview();return;}
-    if(nativeTest){currentArt=peek::nativeMirrorArt();if(currentArt){peek::Snapshot empty;peek::updatePreviewWindow(*currentArt,empty,"ACTIVE ROOM - NATIVE TEST",0,"LIVE",peek::nativeRenderStatus());}return;}
+    if(nativeTest){currentArt=peek::nativeMirrorArt();if(currentArt){peek::Snapshot empty;peek::updatePreviewWindow(*currentArt,empty,"ACTIVE ROOM - NATIVE TEST",0,peek::nativeRenderStatus());}return;}
     if(action.action==peek::PreviewAction::Back)back=true;
-    if(action.action==peek::PreviewAction::Wet)wetToggle=true;
     if(action.action==peek::PreviewAction::Dock)peek::closePreviewWindow();
-    if(action.action==peek::PreviewAction::Select&&action.object>=0&&action.object<(int)preview.objects.size())enterPreview(preview.objects[action.object]);
+    if(action.action==peek::PreviewAction::Select)enterPreview(action.object);
     float u=std::max(1.0f,viewH/750.0f),cell=std::min(viewW/20,viewH/15);
     float left=(viewW-cell*20)*.5f,top=(viewH-cell*15)*.5f;
     ChestView* hovered=nullptr;ChestView* pinnedChest=nullptr;
-    for(auto& c:chests){float x=left+(c.x-.5f)*cell,y=top+(c.y-.8f)*cell;
-        if(GetForegroundWindow()==gameWindow&&mouse.x>=x-8*u&&mouse.x<=x+cell+8*u&&mouse.y>=y-8*u&&mouse.y<=y+cell+8*u)hovered=&c;
+    for(auto& c:chests){float x=left+(c.x-.5f)*cell,y=top+(c.y-(c.outward?.4f:.8f))*cell;
+        if(GetForegroundWindow()==gameWindow&&mouse.x>=x-8*u&&mouse.x<=x+cell+8*u&&mouse.y>=y-8*u&&mouse.y<=y+cell*(c.outward?1.4f:1.f)+8*u)hovered=&c;
         if(c.id==pinnedId)pinnedChest=&c;
     }
     if(pinned&&!pinnedChest){clearPreview();return;}
     if(peek::previewWindowOpen()&&!pinned){peek::closePreviewWindow();}
-    if(back){wetMode=0;if(previewPath.size()>1)previewPath.pop_back();else{clearPreview();return;}}
-    if(wetToggle)wetMode=(wetMode+1)%3;
+    if(back){if(previewPath.size()>1)previewPath.pop_back();else{clearPreview();return;}}
     if(hoveredId!=(hovered?hovered->id:0))dismissedHover=false;
-    if(!pinned){if(!hovered||hoveredId!=hovered->id)wetMode=0;hoveredId=hovered?hovered->id:0;
-        previewPath.clear();if(hovered&&(!dismissedHover||clicked||open))previewPath.push_back({hovered->room,hovered->wet});}
-    if((clicked||open)&&hovered&&(!pinned||clickPopout)){if(pinnedId!=hovered->id){previewPath.clear();wetMode=0;}pinned=true;pinnedId=hovered->id;pinnedChest=hovered;dismissedHover=false;if(previewPath.empty())previewPath.push_back({hovered->room,hovered->wet});}
+    if(!pinned){hoveredId=hovered?hovered->id:0;
+        previewPath.clear();if(hovered&&(!dismissedHover||clicked||open))previewPath.push_back(rootStep(*hovered));}
+    if((clicked||open)&&hovered&&(!pinned||clickPopout)){if(pinnedId!=hovered->id){previewPath.clear();}pinned=true;pinnedId=hovered->id;pinnedChest=hovered;dismissedHover=false;if(previewPath.empty())previewPath.push_back(rootStep(*hovered));}
     ChestView* active=pinned?pinnedChest:hovered;
     if(previewPath.empty()){peek::requestNativeMirror(false);return;}
-    if(active&&previewPath[0].wet!=active->wet){previewPath.resize(1);previewPath[0].wet=active->wet;wetMode=0;}
+    if(active&&(previewPath[0].wet!=active->wet||previewPath[0].room!=active->room)){
+        previewPath.assign(1,rootStep(*active));
+    }
+    // Revalidate live/global chests along the path, not just the visible room.
+    // A removed entry returns to its parent; movement across water updates its branch.
+    for(size_t i=1;i<previewPath.size();i++){
+        auto& child=previewPath[i];if(!child.chestId)continue;
+        const auto& parent=previewPath[i-1];auto state=child.parentSnapshot;
+        if(parent.ancestors>=0)state=peek::readRoomSnapshot(roomHost,active?active->owner:0,parent.ancestors,state);
+        else {
+            auto globals=peek::readGlobals(roomHost,active?active->owner:0,parent.room);
+            if(!globals.available)state.error=globals.error;else peek::applyGlobals(state,globals);
+        }
+        auto entry=std::find_if(state.objects.begin(),state.objects.end(),[&](const peek::Object& o){return o.sourceId==child.chestId&&o.kind=="chest";});
+        if(!state.error.empty()||entry==state.objects.end()){previewPath.resize(i);break;}
+        bool wet=peek::wetAt(state,entry->x,entry->y);
+        if(child.room!=entry->target||child.wet!=wet){child.room=entry->target;child.wet=wet;previewPath.resize(i+1);break;}
+    }
     if(open||(clicked&&clickPopout)){if(open&&peek::previewWindowOpen())peek::closePreviewWindow();else if(!peek::showPreviewWindow(gameWindow))log("Preview window creation failed: %lu",GetLastError());}
-    previewWet=wetMode==0?previewPath.back().wet:wetMode==2;
-    const auto key=missionPath+"|"+previewPath.back().room+"|"+(previewWet?"wet":"dry");
+    const auto step=previewPath.back();bool live=step.ancestors>=0;
+    previewWet=step.wet;
+    const auto key=missionPath+"|"+step.room+"|"+(live?"live:"+std::to_string(step.ancestors):previewWet?"wet":"dry");
     if(key!=previewKey){templatePreview=peek::loadSnapshot(gameRoot,missionPath,previewPath.back().room,previewWet);previewKey=key;log("Preview %s objects=%zu error=%s",key.c_str(),templatePreview.objects.size(),templatePreview.error.c_str());}
+    const auto source=peek::readRoomReference(roomHost,active?active->owner:0,0);
     auto globals=peek::readGlobals(roomHost,active?active->owner:0,previewPath.back().room);
-    preview=templatePreview;peek::applyGlobals(preview,globals);
+    if(live)preview=peek::readRoomSnapshot(roomHost,active?active->owner:0,step.ancestors,templatePreview);
+    else {
+        preview=templatePreview;peek::applyGlobals(preview,globals);
+        if(!globals.available&&preview.error.empty())preview.error=globals.error;
+        preview.nativeDepth=step.renderDepth>=0?step.renderDepth:source.depth+1;
+    }
     peek::requestNativeDestination(roomHost,preview,key,(int)previewPath.size());currentArt=peek::nativeDestinationArt(key);bool nativeArt=currentArt!=nullptr;
+    if(nativeArt)if(auto rendered=peek::nativeDestinationSnapshot(key))preview=*rendered;
     if(!currentArt)currentArt=&peek::renderRoomArt(gameRoot,preview);
-    const std::string stateStatus=!globals.available?"GLOBAL STATE UNAVAILABLE":globals.initialized?"GLOBAL STATE - APPROXIMATE":"INITIAL LAYOUT - APPROXIMATE";
-    const std::string status=!preview.error.empty()?"PREVIEW UNAVAILABLE: "+preview.error:nativeArt?"ORIGINAL RENDERER / "+stateStatus:"FALLBACK / "+stateStatus;
-    const std::string condition=std::string(wetMode?"MANUAL ":"AUTO ")+(previewWet?"WET":"DRY");
-    if(active)rect(left+(active->x-.18f)*cell,top+(active->y+.43f)*cell,cell*.36f,2*u,1,.85f,.35f);
-    if(peek::previewWindowOpen()){peek::updatePreviewWindow(*currentArt,preview,previewPath.back().room,(int)previewPath.size(),condition,status+(nativeArt?"":"\n"+peek::nativeRenderStatus()));return;}
-    float w=std::min(viewW-32*u,440*u),s=(w-24*u)/20,h=15*s+112*u;
+    const std::string status=preview.error.empty()?"":"Preview unavailable: "+preview.error;
+    int shownDepth=preview.nativeDepth-source.depth;
+    if(active)rect(left+(active->x-.18f)*cell,top+(active->y+(active->outward?.98f:.43f))*cell,cell*.36f,2*u,1,.85f,.35f);
+    if(peek::previewWindowOpen()){peek::updatePreviewWindow(*currentArt,preview,previewPath.back().room,shownDepth,status);return;}
+    float w=std::min(viewW-32*u,440*u),s=(w-24*u)/20,h=15*s+96*u;
     float x=viewW-w-16*u,y=76*u;if(active&&left+active->x*cell>viewW*.6f)x=16*u;
     if(y+h>viewH-8*u)y=std::max(68*u,viewH-h-8*u);
     rect(x,y,w,h,.045f,.06f,.1f);outline(x,y,w,h,.72f,.81f,.95f);
     text(x+12*u,y+12*u,"ROOM: "+previewPath.back().room.substr(0,32),1.6f*u);
-    text(x+12*u,y+29*u,std::string(pinned?"PINNED":"HOVER")+" "+condition+" DEPTH "+std::to_string(previewPath.size()),1.2f*u);
+    text(x+12*u,y+29*u,std::string(pinned?"PINNED":"HOVER")+" DEPTH "+std::to_string(shownDepth),1.2f*u);
     float gx=x+12*u,gy=y+48*u;imageQuad(gx,gy,20*s,15*s);
-    for(const auto& o:preview.objects)if(o.kind=="chest"){
-        float ox=gx+(o.x-.65f)*s,oy=gy+(o.y-.9f)*s;
-        if(mouse.x>=ox&&mouse.x<=ox+1.3f*s&&mouse.y>=oy&&mouse.y<=oy+1.55f*s){rect(gx+(o.x-.18f)*s,gy+(o.y+.43f)*s,.36f*s,2*u,1,.85f,.35f);if(pinned&&clicked){enterPreview(o);break;}}
+    for(const auto& o:preview.objects)if(o.kind=="chest"||previewPortal(o)){
+        bool portal=previewPortal(o);float ox=gx+(o.x-.65f)*s,oy=gy+(o.y-(portal?.4f:.9f))*s;
+        if(mouse.x>=ox&&mouse.x<=ox+1.3f*s&&mouse.y>=oy&&mouse.y<=oy+(portal?1.4f:1.55f)*s){rect(gx+(o.x-.18f)*s,gy+(o.y+(portal?.98f:.43f))*s,.36f*s,2*u,1,.85f,.35f);if(pinned&&clicked){enterPreview(o);break;}}
     }
     if(!preview.error.empty())text(gx,gy+6*s,"PREVIEW UNAVAILABLE",1.5f*u);
-    text(gx,gy+15*s+10*u,"BACKSPACE: BACK  W: AUTO-DRY-WET  ESC: CLOSE",u);
+    text(gx,gy+15*s+10*u,"BACKSPACE: BACK  CLICK FIRE: OUT  ESC: CLOSE",u);
     text(gx,gy+15*s+25*u,"O: NEW WINDOW  SHIFT+CLICK: NEW WINDOW",u);
     text(gx,gy+15*s+40*u,status.substr(0,62),u);
 }
@@ -256,14 +301,14 @@ static void drawOverlay(){
     if(queuedNative){queuedNative=false;bool next=!nativeTest;clearPreview();nativeTest=next;if(next){enabled=true;peek::requestNativeMirror(true);peek::showPreviewWindow(hwnd);log("Native replay requested");}}
     // Events preserve short clicks without firing twice across consecutive frames.
     if(queuedToggle){enabled=!enabled;if(!enabled)clearPreview();}
-    bool clicked=queuedClick,backed=queuedBack,wetToggle=queuedWet,open=queuedOpen,close=queuedClose;
-    queuedToggle=queuedClick=queuedBack=queuedWet=queuedOpen=queuedClose=false;
+    bool clicked=queuedClick,backed=queuedBack,open=queuedOpen,close=queuedClose;
+    queuedToggle=queuedClick=queuedBack=queuedOpen=queuedClose=false;
     if(!enabled)return;
     POINT mouse{};GetCursorPos(&mouse);ScreenToClient(hwnd,&mouse);
     float u=std::max(1.0f,viewH/750.0f);
     vertices.clear();rect(12*u,12*u,std::min(viewW-24*u,500.0f*u),45*u,.055f,.075f,.13f);text(24*u,22*u,"RECURSED++  F8: INSPECT",2*u);
     text(24*u,43*u,"CLICK: PIN  SHIFT+CLICK: WINDOW  O: SWITCH",u);
-    drawPreview(mouse,clicked,backed,wetToggle,open,close);clickPopout=false;
+    drawPreview(mouse,clicked,backed,open,close);clickPopout=false;
     GLint oldRowLength,oldSkipRows,oldSkipPixels;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&oldRowLength);glGetIntegerv(GL_UNPACK_SKIP_ROWS,&oldSkipRows);glGetIntegerv(GL_UNPACK_SKIP_PIXELS,&oldSkipPixels);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);glPixelStorei(GL_UNPACK_SKIP_ROWS,0);glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
     GLint oldActiveTexture,oldTexture,oldUnpack,oldPBO;glGetIntegerv(0x84E0,&oldActiveTexture);ActiveTexture(0x84C0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&oldTexture);glGetIntegerv(GL_UNPACK_ALIGNMENT,&oldUnpack);glGetIntegerv(0x88EF,&oldPBO);BindBuffer(0x88EC,0);glPixelStorei(GL_UNPACK_ALIGNMENT,4);
     if(!artTexture){glGenTextures(1,&artTexture);glBindTexture(GL_TEXTURE_2D,artTexture);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,0x812F);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,0x812F);unsigned int pixel=0xffffffff;glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,1,1,0,0x80E1,GL_UNSIGNED_BYTE,&pixel);}glBindTexture(GL_TEXTURE_2D,artTexture);
@@ -292,6 +337,8 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(!hookImport("sfml-window-2.dll","?isKeyPressed@Keyboard@sf@@SA_NW4Key@12@@Z",(void*)keyHook,(void**)&originalIsKeyPressed))return 0;
     log("Automated test input buffering: %s",bufferedTestInput?"on":"off");
     if(*(uintptr_t*)address(0x47ad80)!=(uintptr_t)address(0x411730)){log("Chest vtable mismatch");return 0;}
+    if(*(uintptr_t*)address(0x47af24)!=(uintptr_t)address(0x413600)){log("Exit vtable mismatch");return 0;}
+    if(!patchPointer((void**)address(0x47af24),(void*)exitTransformHook,(void**)&originalExitTransform))return 0;
     if(!patchPointer((void**)address(0x47ad80),(void*)chestTransformHook,(void**)&originalChestTransform)||!hookRoomBuilder()){log("Game hooks failed");return 0;}
     if(!peek::installNativeRender(gameBase)){log("Native renderer signature mismatch");return 0;}
     if(!hookImport("sfml-window-2.dll","?display@Window@sf@@QAEXXZ",(void*)displayHook,(void**)&originalDisplay)){log("Display import missing");return 0;}

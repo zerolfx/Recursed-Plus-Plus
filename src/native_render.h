@@ -9,5 +9,6 @@ const RoomArt* nativeMirrorArt();
 const std::string& nativeRenderStatus();
 void requestNativeDestination(uintptr_t host,const Snapshot& snapshot,const std::string& key,int depth);
 const RoomArt* nativeDestinationArt(const std::string& key);
+const Snapshot* nativeDestinationSnapshot(const std::string& key);
 bool nativeRenderWork();
 }

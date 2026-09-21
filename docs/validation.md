@@ -10,6 +10,8 @@ Validated on 2026-09-22 using the supported Windows x86 executable. Interactive 
 - Wet branches and liquid queries.
 - Saved global-state replacement, empty-list suppression, and deduplication.
 - Invalid live pointers and path traversal rejection.
+- Authored old-ABI room stacks: ancestor identity, tile indices, portal variants, and actual positions.
+- Resampling after movement, flooding, holding an item, and destruction; prior snapshots remain immutable.
 - Missing rooms, unavailable file APIs, instruction limits, and object-count limits.
 - Partial room results are discarded after a Lua failure.
 - Deterministic fallback particle sampling and bounded particle output.
@@ -34,13 +36,22 @@ Passing script extraction does not imply exact puzzle-state simulation or suppor
 - The real player and room objects remain in place. Native frames are accepted only after the bounded live-state audit passes.
 - Tile definition IDs are resolved by name rather than incorrectly treating atlas frame numbers as native IDs.
 
+The two checked-in native screenshots show the earlier UI, before removal of implementation labels. They are historical rendering evidence, not current UI captures.
+
+## Current increment
+
+- Native red and green flames were visually observed in the authored `portals` room before the latest navigation and placement changes.
+- Native spawn placement was confirmed from the supported executable: flag mask 0x21, twenty collision moves of 0.05 tiles.
+- The x86 build, asset-free fixtures, snapshot tests, fallback render tests, and save verification pass locally.
+- The final outer-navigation, spawn-placement, and simplified-UI changes still require an interactive native regression pass. Computer Use was stopped by the user, so no further automated game input or new screenshots were taken.
+
 ## Earlier state and interaction checks
 
 - State Lab dry and submerged chests target the same vault but select different automatic conditions.
 - Global keys and boxes fall after actual entry; self-referencing previews display their current positions.
 - Leaving the vault retains saved positions instead of reverting to initial declarations.
 - Taking the global key outside removes it from the destination preview.
-- Manual dry/wet cycling and nested automatic wet inference were checked.
+- Nested automatic wet inference was checked. The old manual dry/wet control has since been removed.
 - Separate-window resize and DPI handling, nested selection, back navigation, docking, and closing were checked.
 - Original Chests/basic5 destination detection and the earlier layout preview were checked.
 
@@ -50,4 +61,4 @@ The local backup verifier confirmed four backed-up files and unchanged original 
 
 ## Not covered
 
-Global restoration collision rules, carried-item branches, state changes across successive hypothetical entries, jars, cauldrons, native return portals, every native entity destructor, and other executable versions remain outside the verified scope. The gameplay-field audit does not cover every engine field. State previews retain `APPROXIMATE` labels; unsupported native scenes use explicit fallback rendering.
+Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, jars, cauldrons, every native entity destructor, and other executable versions remain outside the verified scope. The latest outward click navigation needs GUI regression testing. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.

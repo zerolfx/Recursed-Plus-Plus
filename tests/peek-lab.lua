@@ -24,6 +24,7 @@ function start()
   Spawn("chest",7,12.5,"keyroom")
   Spawn("chest",12,12.5,"pool")
   Spawn("box",15,12.5)
+  Spawn("chest",17.5,12.5,"portals")
 end
 function keyroom(wet)
   shell()
@@ -38,6 +39,12 @@ function pool(wet)
   ApplyTiles(wip,9,11,"~~~~~~~~~~\nwwwwwwwwww")
   Spawn("player",3,12)
   Spawn("chest",7,12.5,"keyroom")
+end
+function portals(wet)
+  shell()
+  Spawn("player",3,12)
+  Spawn("yield",10,12)
+  Spawn("chest",15,12.5,"pool")
 end
 tiles="tiles/castle"
 pattern="backgrounds/checker"
