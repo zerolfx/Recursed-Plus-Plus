@@ -78,6 +78,24 @@ static bool hookImport(const char* dll,const char* name,void* hook,void** origin
         }
     }return false;
 }
+using CursorVisibility=void(__thiscall*)(void*,bool);
+static CursorVisibility originalCursorVisibility;
+static void* cursorWindow=nullptr;
+static bool requestedCursorVisible=true,appliedCursorVisible=true;
+static void __fastcall cursorVisibilityHook(void* window,void*,bool visible){
+    cursorWindow=window;requestedCursorVisible=visible;
+    appliedCursorVisible=enabled||visible;
+    originalCursorVisibility(window,appliedCursorVisible);
+}
+static void syncCursorVisibility(void* window){
+    const bool known=cursorWindow==window;
+    if(!known){cursorWindow=window;requestedCursorVisible=true;}
+    const bool visible=enabled||requestedCursorVisible;
+    // Update SFML's stored visibility, including its mouse-enter/focus handling.
+    // Do not modify the thread's ShowCursor counter on every rendered frame.
+    if(!known||visible!=appliedCursorVisible)originalCursorVisibility(window,visible);
+    appliedCursorVisible=visible;
+}
 using ChestTransform=void(__thiscall*)(void*);
 static ChestTransform originalChestTransform;
 static ChestTransform originalExitTransform;
@@ -320,7 +338,7 @@ static void drawOverlay(){
     BindVertexArray(oldVAO);BindBuffer(0x8892,oldBuffer);UseProgram(oldProgram);BindFramebuffer(0x8CA9,oldDrawFBO);glViewport(oldViewport[0],oldViewport[1],oldViewport[2],oldViewport[3]);glColorMask(oldColor[0],oldColor[1],oldColor[2],oldColor[3]);for(int i=0;i<6;i++)if(states[i])glEnable(caps[i]);
     glBindTexture(GL_TEXTURE_2D,oldTexture);glPixelStorei(GL_UNPACK_ALIGNMENT,oldUnpack);glPixelStorei(GL_UNPACK_ROW_LENGTH,oldRowLength);glPixelStorei(GL_UNPACK_SKIP_ROWS,oldSkipRows);glPixelStorei(GL_UNPACK_SKIP_PIXELS,oldSkipPixels);BindBuffer(0x88EC,oldPBO);ActiveTexture(oldActiveTexture);
 }
-static void __fastcall displayHook(void* window,void*){frame++;if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();originalDisplay(window);chests.clear();}
+static void __fastcall displayHook(void* window,void*){frame++;if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();syncCursorVisibility(window);originalDisplay(window);chests.clear();}
 extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     gameBase=(uintptr_t)GetModuleHandleW(nullptr);
     char own[MAX_PATH];GetModuleFileNameA(selfModule,own,MAX_PATH);char* sep=strrchr(own,'\\');if(!sep)return 0;*sep=0;
@@ -332,6 +350,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(!hookImport("SHELL32.dll","SHGetFolderPathA",(void*)isolatedFolder,(void**)&originalFolder)){log("Profile hook failed; refusing to start");return 0;}
     if(!hookImport("steam_api.dll","SteamAPI_Init",(void*)offlineSteam,nullptr)){log("Steam isolation failed; refusing to start");return 0;}
     if(!hookImport("MSVCR120.dll","fopen",(void*)fopenHook,(void**)&originalFopen)){log("Lua file hook missing");return 0;}
+    if(!hookImport("sfml-window-2.dll","?setMouseCursorVisible@Window@sf@@QAEX_N@Z",(void*)cursorVisibilityHook,(void**)&originalCursorVisibility)){log("Cursor visibility hook missing");return 0;}
     if(!hookImport("sfml-window-2.dll","?pollEvent@Window@sf@@QAE_NAAVEvent@2@@Z",(void*)pollEventHook,(void**)&originalPollEvent))return 0;
     char testFlag[8];bufferedTestInput=GetEnvironmentVariableA("RECURSED_PEEK_TEST_INPUT",testFlag,sizeof testFlag)>0;
     if(!hookImport("sfml-window-2.dll","?isKeyPressed@Keyboard@sf@@SA_NW4Key@12@@Z",(void*)keyHook,(void**)&originalIsKeyPressed))return 0;

@@ -55,6 +55,10 @@ The two checked-in native screenshots show the earlier UI, before removal of imp
 - Separate-window resize and DPI handling, nested selection, back navigation, docking, and closing were checked.
 - Original Chests/basic5 destination detection and the earlier layout preview were checked.
 
+## Cursor visibility change
+
+The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook now overrides that request while inspection is enabled and restores it when F8 disables inspection. The x86 build and fixture suite verify compilation and existing behavior; on-screen cursor visibility, repeated F8 toggling, and mouse movement between windows still need an interactive check.
+
 ## Save isolation
 
 The local backup verifier confirmed four backed-up files and unchanged original hashes after native preview testing. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.

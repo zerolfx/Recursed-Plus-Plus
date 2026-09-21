@@ -39,6 +39,8 @@ The archive contains the mod, launcher, scripts, and authored test levels. It co
 | F8 | Toggle inspection |
 | F7 | Developer diagnostic: redraw the active room, not a chest destination |
 
+The system pointer stays visible while inspection is enabled, including when moving between the game and the preview window. F8 restores the game's requested cursor visibility when inspection is disabled.
+
 The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. If an input method intercepts letter keys, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
 
 Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
