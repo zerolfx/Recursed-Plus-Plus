@@ -1,0 +1,42 @@
+name: Build Windows patch
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check repository contents
+        shell: pwsh
+        run: ./tools/check-repository.ps1
+      - name: Download and verify Lua
+        shell: pwsh
+        run: ./tools/bootstrap.ps1
+      - name: Build x86 plugin, launcher, and tests
+        shell: cmd
+        run: build.cmd
+      - name: Run tests without proprietary game files
+        shell: pwsh
+        run: |
+          ./build/ci_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'CI tests failed.' }
+      - name: Package patch
+        shell: pwsh
+        run: ./tools/package.ps1
+      - name: Upload patch archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Recursed-Plus-Plus-windows-x86
+          path: dist/Recursed-Plus-Plus-windows-x86.zip
+          if-no-files-found: error
+          retention-days: 14

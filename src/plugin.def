@@ -1,0 +1,3 @@
+LIBRARY recursed_peek
+EXPORTS
+    RecursedPeekInitialize=_RecursedPeekInitialize@4

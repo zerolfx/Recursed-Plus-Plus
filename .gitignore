@@ -1,0 +1,16 @@
+/build/
+/analysis/
+/runtime/
+/vendor/
+/backups/
+/dist/
+.vs/
+.env
+# Local historical comparison captures; current examples are tracked explicitly.
+/docs/preview-*
+/docs/native-replay.png
+/docs/native-render-lab.png
+*.obj
+*.pdb
+*.ilk
+*.log
