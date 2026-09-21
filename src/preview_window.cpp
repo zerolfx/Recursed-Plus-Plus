@@ -1,6 +1,8 @@
 #include "preview_window.h"
 #include <algorithm>
 #include <deque>
+#include <imm.h>
+#pragma comment(lib,"imm32.lib")
 namespace peek { namespace {
 static HWND popup=nullptr,owner=nullptr;
 static RoomArt art;
@@ -31,7 +33,9 @@ static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){switch(msg){
  case WM_DESTROY:popup=nullptr;return 0;
  }return DefWindowProcW(hwnd,msg,w,l);}
 }
-bool showPreviewWindow(HWND parent){if(popup){ShowWindow(popup,SW_RESTORE);SetForegroundWindow(popup);return true;}owner=parent;actions.clear();using GetDpi=UINT(WINAPI*)(HWND);auto getDpi=(GetDpi)GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow");setDpi(getDpi?getDpi(parent):96);WNDCLASSW wc{};wc.lpfnWndProc=proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"RecursedPeekRoomPreview";wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));RegisterClassW(&wc);RECT parentRect{};GetWindowRect(parent,&parentRect);RECT r{0,0,px(880),px(800)};AdjustWindowRectEx(&r,WS_OVERLAPPEDWINDOW,FALSE,WS_EX_APPWINDOW);MONITORINFO monitor{sizeof(MONITORINFO)};GetMonitorInfoW(MonitorFromWindow(parent,MONITOR_DEFAULTTONEAREST),&monitor);int width=std::min(r.right-r.left,monitor.rcWork.right-monitor.rcWork.left),height=std::min(r.bottom-r.top,monitor.rcWork.bottom-monitor.rcWork.top);int x=monitor.rcWork.left+(monitor.rcWork.right-monitor.rcWork.left-width)/2,y=monitor.rcWork.top+(monitor.rcWork.bottom-monitor.rcWork.top-height)/2;popup=CreateWindowExW(WS_EX_APPWINDOW,wc.lpszClassName,L"Recursed++ Preview",WS_OVERLAPPEDWINDOW,x,y,width,height,parent,nullptr,wc.hInstance,nullptr);if(!popup)return false;ShowWindow(popup,SW_SHOW);SetForegroundWindow(popup);return true;}
+bool showPreviewWindow(HWND parent){if(popup){ShowWindow(popup,SW_RESTORE);SetForegroundWindow(popup);return true;}owner=parent;actions.clear();using GetDpi=UINT(WINAPI*)(HWND);auto getDpi=(GetDpi)GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow");setDpi(getDpi?getDpi(parent):96);WNDCLASSW wc{};wc.lpfnWndProc=proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"RecursedPeekRoomPreview";wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));RegisterClassW(&wc);RECT parentRect{};GetWindowRect(parent,&parentRect);RECT r{0,0,px(880),px(800)};AdjustWindowRectEx(&r,WS_OVERLAPPEDWINDOW,FALSE,WS_EX_APPWINDOW);MONITORINFO monitor{sizeof(MONITORINFO)};GetMonitorInfoW(MonitorFromWindow(parent,MONITOR_DEFAULTTONEAREST),&monitor);int width=std::min(r.right-r.left,monitor.rcWork.right-monitor.rcWork.left),height=std::min(r.bottom-r.top,monitor.rcWork.bottom-monitor.rcWork.top);int x=monitor.rcWork.left+(monitor.rcWork.right-monitor.rcWork.left-width)/2,y=monitor.rcWork.top+(monitor.rcWork.bottom-monitor.rcWork.top-height)/2;popup=CreateWindowExW(WS_EX_APPWINDOW,wc.lpszClassName,L"Recursed++ Preview",WS_OVERLAPPEDWINDOW,x,y,width,height,parent,nullptr,wc.hInstance,nullptr);if(!popup)return false;
+ // This window has no text fields; IME composition must not consume O or Esc.
+ ImmAssociateContext(popup,nullptr);ShowWindow(popup,SW_SHOW);SetForegroundWindow(popup);return true;}
 void closePreviewWindow(){if(popup){auto h=popup;popup=nullptr;DestroyWindow(h);if(IsWindow(owner))SetForegroundWindow(owner);}art={};snapshot={};title.clear();info.clear();}
 bool previewWindowOpen(){return popup!=nullptr;}
 bool previewWindowFocused(){return popup&&GetForegroundWindow()==popup;}

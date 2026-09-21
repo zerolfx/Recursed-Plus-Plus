@@ -38,12 +38,22 @@ Passing script extraction does not imply exact puzzle-state simulation or suppor
 
 The two checked-in native screenshots show the earlier UI, before removal of implementation labels. They are historical rendering evidence, not current UI captures.
 
-## Current increment
+## Current increment: interactive regression
 
-- Native red and green flames were visually observed in the authored `portals` room before the latest navigation and placement changes.
-- Native spawn placement was confirmed from the supported executable: flag mask 0x21, twenty collision moves of 0.05 tiles.
-- The x86 build, asset-free fixtures, snapshot tests, fallback render tests, and save verification pass locally.
-- The final outer-navigation, spawn-placement, and simplified-UI changes still require an interactive native regression pass. Computer Use was stopped by the user, so no further automated game input or new screenshots were taken.
+Computer Use checked the isolated build on 2026-09-22:
+
+- Both red and green flames in `portals` return from Depth 1 to the actual current room at Depth 0.
+- Native spawn placement puts preview chests against the floor. The key rests on its platform and the lock uses its native model.
+- While a chest is held, the live room preview omits it. Moving and releasing it updates the same open window at its new position: x=7.60 instead of the initial x=7.00.
+- Actual entry into `keyroom` invalidates the old preview. Clicking its real return flame displays the existing parent at Depth -1, retaining that moved chest position.
+- Clicking a chest in the parent preview moves inward to Depth 0; Backspace returns to Depth -1.
+- O switches presentation, and Esc closes the preview without pausing gameplay.
+- The popup's O key initially failed under the Chinese IME. Disabling IME association for that shortcut-only window fixed it; O was retested after restoring Chinese input mode in the main window.
+- The game and every preview window were closed at the end; no Recursed process remained.
+
+Native spawn placement was also confirmed from the executable: flag mask 0x21, twenty collision moves of 0.05 tiles. The x86 build, asset-free fixtures, and save verification pass. Earlier local snapshot and fallback-render test results remain applicable.
+
+The current [parent-room capture](outside-preview.png) was saved with the pointer outside the captured window. It shows Depth -1 after real entry, without implementation labels or manual liquid controls.
 
 ## Earlier state and interaction checks
 
@@ -57,7 +67,7 @@ The two checked-in native screenshots show the earlier UI, before removal of imp
 
 ## Cursor visibility change
 
-The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook now overrides that request while inspection is enabled and restores it when F8 disables inspection. The x86 build and fixture suite verify compilation and existing behavior; on-screen cursor visibility, repeated F8 toggling, and mouse movement between windows still need an interactive check.
+The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook now overrides that request while inspection is enabled and restores it when F8 disables inspection. F8 off/on and switching between game and popup were tested interactively. Test-mode logs read `GetCursorInfo` after the visibility change: `systemVisible=0` when inspection is disabled and `systemVisible=1` when enabled. This distinguishes the actual system cursor from the Computer Use pointer marker. Cursor diagnostics are emitted only with `RECURSED_PEEK_TEST_INPUT=1`.
 
 ## Save isolation
 
@@ -65,4 +75,4 @@ The local backup verifier confirmed four backed-up files and unchanged original 
 
 ## Not covered
 
-Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, jars, cauldrons, every native entity destructor, and other executable versions remain outside the verified scope. The latest outward click navigation needs GUI regression testing. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.
+Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, jars, cauldrons, every native entity destructor, and other executable versions remain outside the verified scope. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.

@@ -4,6 +4,8 @@ A Windows x86 mod that lets you inspect rooms inside chests and look back throug
 
 The preview now uses Recursed's original renderer for terrain, depth-dependent backgrounds, lighting, models, chest particles, key rotation, and water effects. Room state remains approximate; rendering fidelity and entry-state simulation are separate concerns.
 
+![Preview of the existing parent room](docs/outside-preview.png)
+
 ## Download and run
 
 1. Open this repository's **Actions** tab and select a successful **Build Windows patch** run.
@@ -41,7 +43,7 @@ The archive contains the mod, launcher, scripts, and authored test levels. It co
 
 The system pointer stays visible while inspection is enabled, including when moving between the game and the preview window. F8 restores the game's requested cursor visibility when inspection is disabled.
 
-The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. If an input method intercepts letter keys, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
+The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
 
 Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
 

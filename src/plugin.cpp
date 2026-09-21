@@ -93,7 +93,10 @@ static void syncCursorVisibility(void* window){
     const bool visible=enabled||requestedCursorVisible;
     // Update SFML's stored visibility, including its mouse-enter/focus handling.
     // Do not modify the thread's ShowCursor counter on every rendered frame.
-    if(!known||visible!=appliedCursorVisible)originalCursorVisibility(window,visible);
+    if(!known||visible!=appliedCursorVisible){
+        originalCursorVisibility(window,visible);
+        if(bufferedTestInput){CURSORINFO info{sizeof info};GetCursorInfo(&info);log("Cursor inspection=%d requested=%d applied=%d systemVisible=%d",enabled,requestedCursorVisible,visible,(info.flags&CURSOR_SHOWING)!=0);}
+    }
     appliedCursorVisible=visible;
 }
 using ChestTransform=void(__thiscall*)(void*);
