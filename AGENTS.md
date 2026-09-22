@@ -1,6 +1,8 @@
 # Project instructions
 
 - Keep repository content in English and use Conventional Commits.
+- Record every change a player would notice in `CHANGELOG.md`, under `Unreleased`, in the same
+  change. Describe the behaviour, not the patch.
 - Credit only human authors. Do not name an assistant, agent, or generator anywhere in the repository: not in commit messages or trailers, not in pull request descriptions, not in code comments, documentation, or contributor lists. Never add a `Co-Authored-By` line or a "generated with" note for a tool.
 - Before taking screenshots, move the pointer outside the captured game or preview content. Do not include the agent's cursor in published screenshots. Verify the captured result before saving it as an artifact.
 - Keep player-facing UI focused on rooms, depth, navigation, and actionable errors. Do not display renderer names, engine details, implementation status, or debugging labels during normal play.

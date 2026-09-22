@@ -2,7 +2,8 @@ name: Build Windows patch
 
 on:
   push:
-    branches: [main]
+    # Every branch, so the exe for a change in progress can be downloaded from its own run.
+    branches: ['**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
