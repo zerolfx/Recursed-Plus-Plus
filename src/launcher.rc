@@ -3,6 +3,14 @@
 /* CREATEPROCESS_MANIFEST_RESOURCE_ID, RT_MANIFEST */
 1 24 "launcher.manifest"
 
+/* The mod itself, carried inside the launcher so that a player downloads one file. The path is
+   relative to this script, and the build compiles the DLL before it compiles these resources. */
+RECURSEDPEEKPLUGIN RCDATA "..\\build\\recursed_peek.dll"
+
+/* Lua ships under a licence that requires its notice to accompany every copy of the software.
+   The single executable is the copy, so the notice travels inside it and the launcher shows it. */
+RECURSEDPEEKNOTICES RCDATA "..\\THIRD_PARTY_NOTICES.md"
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 1,0,0,0
  PRODUCTVERSION 1,0,0,0

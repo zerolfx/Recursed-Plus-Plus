@@ -15,6 +15,9 @@ jobs:
   build:
     runs-on: windows-2022
     timeout-minutes: 15
+    permissions:
+      # Only the release step below uses this, and only for a v* tag.
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Check repository contents
@@ -31,13 +34,32 @@ jobs:
         run: |
           ./build/ci_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'CI tests failed.' }
-      - name: Package patch
+      - name: Package the downloads
         shell: pwsh
         run: ./tools/package.ps1
-      - name: Upload patch archive
+      - name: Upload the executable players download
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Recursed-Plus-Plus-windows-x86
-          path: dist/Recursed-Plus-Plus-windows-x86.zip
+          name: Recursed-Plus-Plus
+          path: |
+            dist/Recursed-Plus-Plus.exe
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Upload the developer bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Recursed-Plus-Plus-developer-windows-x86
+          path: dist/Recursed-Plus-Plus-developer-windows-x86.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach the downloads to the release
+        # A tag is the one place a player can download the executable as a bare file, without the
+        # zip the Actions artifact UI wraps everything in.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME dist/Recursed-Plus-Plus.exe dist/Recursed-Plus-Plus-developer-windows-x86.zip dist/SHA256SUMS.txt --title $env:GITHUB_REF_NAME --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed.' }

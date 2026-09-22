@@ -8,6 +8,8 @@
 namespace peek { namespace {
 // The one build this mod reads offsets from. Anything else is refused before a process starts.
 const char* kSupported="0E47D5DF0F45152978777E5F8EC7F2435BAB79CD84D630CFAAD5106B90D74251";
+// What to tell a player to allow. One file now: the launcher carries the mod inside itself.
+std::wstring own(){wchar_t path[MAX_PATH]{};GetModuleFileNameW(nullptr,path,MAX_PATH);return path;}
 struct Remote {DWORD result;DWORD error;bool timedOut;};
 Remote runRemote(HANDLE process,LPTHREAD_START_ROUTINE fn,void* arg){
     Remote out{0,0,false};
@@ -38,7 +40,7 @@ bool supportedGame(const std::wstring& path){
     char hex[65]{};for(int i=0;i<32;i++)sprintf_s(hex+i*2,3,"%02X",digest[i]);
     return std::string(hex)==kSupported;
 }
-unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,SteamUse steam,
+unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,SteamUse steam,bool developer,
                            std::wstring& error,const std::function<void(const wchar_t*)>& stage){
     namespace fs=std::filesystem;
     error.clear();
@@ -47,7 +49,7 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
     step(L"Checking the game...");
     if(!fs::exists(exe,ec)){error=L"The game is not where the launcher expected it:\n"+exe;return 0;}
     if(!supportedGame(exe)){error=L"That file is not the build this mod was measured against, so it would read the wrong addresses.\n\nOnly the Steam Windows build of Recursed can be started.";return 0;}
-    if(!fs::exists(plugin,ec)){error=L"recursed_peek.dll is missing next to the launcher.\n\nExtract the whole download into one folder and run it again.";return 0;}
+    if(!fs::exists(plugin,ec)){error=L"The mod file is gone:\n"+plugin+L"\n\nSecurity software usually removed it. Allow this launcher and try again.";return 0;}
     // The game reads data/ relative to its working directory, which is always its own folder
     // here. Without it the game still starts, then fails in ways that look like the mod's
     // fault, so refuse up front instead.
@@ -57,7 +59,7 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
     }
     HMODULE local=LoadLibraryExW(plugin.c_str(),nullptr,DONT_RESOLVE_DLL_REFERENCES);
     auto init=local?GetProcAddress(local,"RecursedPeekInitialize"):nullptr;
-    if(!init){if(local)FreeLibrary(local);error=L"recursed_peek.dll could not be read. The download may be incomplete.";return 0;}
+    if(!init){if(local)FreeLibrary(local);error=L"The mod could not be read:\n"+plugin+L"\n\nThe download may be incomplete.";return 0;}
     const uintptr_t initRva=(uintptr_t)init-(uintptr_t)local;FreeLibrary(local);
 
     // Recursed resolves data/, custom/missions/ and recursed.conf against the process working
@@ -73,6 +75,10 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
     SetEnvironmentVariableW(L"SteamAppId",useSteam?L"497780":nullptr);
     SetEnvironmentVariableW(L"SteamGameId",useSteam?L"497780":nullptr);
     SetEnvironmentVariableW(L"RECURSED_PEEK_STEAM",useSteam?L"1":L"0");
+    // Diagnostics belong to a development run. A player's game is told there are none, whatever
+    // this process happened to inherit; a developer's run keeps what the shell set.
+    if(developer)SetEnvironmentVariableW(L"RECURSED_PEEK_DEV",L"1");
+    else {SetEnvironmentVariableW(L"RECURSED_PEEK_DEV",nullptr);SetEnvironmentVariableW(L"RECURSED_PEEK_TEST_INPUT",nullptr);}
     std::wstring cmd=L"\""+exe+L"\"";
     STARTUPINFOW si{};si.cb=sizeof si;si.dwFlags=STARTF_USESHOWWINDOW;si.wShowWindow=SW_SHOWNORMAL;PROCESS_INFORMATION pi{};
     step(L"Starting the game...");
@@ -86,7 +92,7 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
     SIZE_T written=0;
     if(!remote||!WriteProcessMemory(pi.hProcess,remote,plugin.c_str(),bytes,&written)||written!=bytes){
         stop(pi);
-        error=L"Security software is stopping the launcher from preparing the game.\n\nAllow these two files, then try again:\n"+plugin;
+        error=L"Security software is stopping the launcher from preparing the game.\n\nAllow it, then try again:\n"+own();
         return 0;
     }
     auto load=runRemote(pi.hProcess,(LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandleW(L"kernel32.dll"),"LoadLibraryW"),remote);
@@ -97,8 +103,8 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
     }
     if(!load.result){
         stop(pi);
-        if(!fs::exists(plugin,ec))error=L"recursed_peek.dll was removed while the launcher was using it. Antivirus software usually did this; restore the file and add this folder to its exclusions.";
-        else if(load.error==ERROR_ACCESS_DENIED)error=L"Windows refused to let the launcher load the mod into the game.\n\nThis is what security software blocks. Allow both of these, then try again:\n"+plugin;
+        if(!fs::exists(plugin,ec))error=L"The mod was removed while the launcher was using it:\n"+plugin+L"\n\nAntivirus software usually does this. Allow this launcher and try again.";
+        else if(load.error==ERROR_ACCESS_DENIED)error=L"Windows refused to let the launcher load the mod into the game.\n\nThis is what security software blocks. Allow it, then try again:\n"+own();
         else error=L"The mod could not be loaded into the game"+(load.error?L" (error "+std::to_wstring(load.error)+L")":std::wstring())+L".";
         return 0;
     }

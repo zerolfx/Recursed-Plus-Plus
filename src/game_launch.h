@@ -14,6 +14,9 @@ enum class SteamUse { Steam, Isolated };
 // Starts the game suspended, loads the plugin into it, runs the plugin entry point, resumes,
 // and then confirms the process actually survived. Returns the new process id, or 0 with a
 // reason in `error` naming the step that failed. `stage` is called on the calling thread.
-unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,SteamUse steam,
+// `developer` turns on what only a development run should have - the diagnostics behind
+// RECURSED_PEEK_DEV - and lets the rest of that family of variables through from this process.
+// A player's run states them instead, so nothing set in a shell can reach the game.
+unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,SteamUse steam,bool developer,
                            std::wstring& error,const std::function<void(const wchar_t*)>& stage={});
 }

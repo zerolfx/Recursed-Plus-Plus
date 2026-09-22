@@ -25,7 +25,7 @@ static uintptr_t gameBase;
 static FILE* logFile;
 static char profilePath[MAX_PATH];
 static bool glReady=false;
-static bool bufferedTestInput=false;
+static bool bufferedTestInput=false,developerMode=false;
 static bool nativeTest=false,queuedNative=false;
 static bool queuedClick=false,queuedBack=false,queuedForward=false;
 static bool queuedOpen=false,queuedClose=false,clickPopout=false,suppressEscape=false,escapeSwallowed=false;
@@ -184,7 +184,7 @@ static bool __fastcall pollEventHook(void* window,void*,void* event){
     if(e[0]==5){int key=e[1];if(key>=0&&key<128){keyUntil[key]=GetTickCount64()+100;if(keyDown[key])return result;keyDown[key]=true;}
         if(key==14)queuedOpen=true;   // O: move the same preview between inset and window
         if(key==36&&(suppressEscape||nativeTest||pinned||!previewPath.empty())){queuedClose=true;suppressEscape=escapeSwallowed=true;memset(keyUntil,0,sizeof keyUntil);return pollEventHook(window,nullptr,event);}
-        if(key==91)queuedNative=true; // F7: original-renderer diagnostic
+        if(key==91&&developerMode)queuedNative=true; // F7: original-renderer diagnostic, development runs only
         if(key==59)queuedBack=true;   // Backspace
     }
     // Mouse buttons: the two side buttons walk the preview history the way they walk a browser's.
@@ -439,8 +439,9 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(!hookImport("sfml-window-2.dll","?setMouseCursorVisible@Window@sf@@QAEX_N@Z",(void*)cursorVisibilityHook,(void**)&originalCursorVisibility)){log("Cursor visibility hook missing");return 0;}
     if(!hookImport("sfml-window-2.dll","?pollEvent@Window@sf@@QAE_NAAVEvent@2@@Z",(void*)pollEventHook,(void**)&originalPollEvent))return 0;
     char testFlag[8];bufferedTestInput=GetEnvironmentVariableA("RECURSED_PEEK_TEST_INPUT",testFlag,sizeof testFlag)>0;
+    char devFlag[8];developerMode=GetEnvironmentVariableA("RECURSED_PEEK_DEV",devFlag,sizeof devFlag)>0&&devFlag[0]=='1';
     if(!hookImport("sfml-window-2.dll","?isKeyPressed@Keyboard@sf@@SA_NW4Key@12@@Z",(void*)keyHook,(void**)&originalIsKeyPressed))return 0;
-    log("Automated test input buffering: %s",bufferedTestInput?"on":"off");
+    log("Automated test input buffering: %s; developer diagnostics: %s",bufferedTestInput?"on":"off",developerMode?"on":"off");
     if(*(uintptr_t*)address(0x47ad80)!=(uintptr_t)address(0x411730)){log("Chest vtable mismatch");return 0;}
     if(*(uintptr_t*)address(0x47af24)!=(uintptr_t)address(0x413600)){log("Exit vtable mismatch");return 0;}
     if(!patchPointer((void**)address(0x47af24),(void*)exitTransformHook,(void**)&originalExitTransform))return 0;

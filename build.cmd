@@ -31,7 +31,7 @@ cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /Zi /DWIN32_LEAN_AND_MEAN /DNOMINMAX src
 if errorlevel 1 exit /b 1
 rc /nologo /fobuild\launcher.res src\launcher.rc
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /Zi /DWIN32_LEAN_AND_MEAN /DNOMINMAX src\gui_launcher.cpp src\game_launch.cpp src\steam_scan.cpp src\support_folder.cpp src\save_store.cpp /Fobuild\ /Febuild\Recursed-Plus-Plus.exe build\launcher.res /link /SUBSYSTEM:WINDOWS bcrypt.lib comdlg32.lib comctl32.lib user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib
+cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /Zi /DWIN32_LEAN_AND_MEAN /DNOMINMAX src\gui_launcher.cpp src\game_launch.cpp src\steam_scan.cpp src\support_folder.cpp src\save_store.cpp src\embedded_plugin.cpp /Fobuild\ /Febuild\Recursed-Plus-Plus.exe build\launcher.res /link /SUBSYSTEM:WINDOWS bcrypt.lib comdlg32.lib comctl32.lib user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib
 if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /DWIN32_LEAN_AND_MEAN /DNOMINMAX tools\probe.cpp /Fobuild\probe.obj /Febuild\probe.exe
 if errorlevel 1 exit /b 1

@@ -9,12 +9,12 @@ The preview now uses Recursed's original renderer for terrain, depth-dependent b
 ## Download and play
 
 1. Open this repository's **Actions** tab and select a successful **Build Windows patch** run.
-2. Download the `Recursed-Plus-Plus-windows-x86` artifact and extract the archive inside it into one folder.
+2. Download the `Recursed-Plus-Plus` artifact and unzip the one file inside it.
 3. Run **Recursed-Plus-Plus.exe**.
 
 It looks for your Steam copy of Recursed on its own; if you keep the game somewhere it cannot find, or you have no Steam, choose `Recursed.exe` yourself. It refuses anything that is not the executable fingerprint below, because the mod reads addresses measured against that one build. The controls are printed in the launcher window, so nothing extra is drawn over the game.
 
-The archive contains the mod, its launcher, the developer scripts, and the authored test levels. It contains no game executable, game assets, or save files.
+That executable is the whole download: it carries the mod inside itself and unpacks it under `%LOCALAPPDATA%\Recursed++` when you press Play. It contains no game executable, game assets, or save files.
 
 **What it does to your installation.** Nothing is written into the game's folder. You play the progress you already have, through Steam, with achievements and cloud saves as they always were; only the graphics and sound settings are kept apart, under `%LOCALAPPDATA%\Recursed++\profile`. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
 
@@ -32,17 +32,6 @@ The launcher's **Advanced** page holds the rest, for the times you want the mod 
 - **Import from Steam** copies what you have already done in Steam into that folder, which is what an isolated run starts from. Close the game first: a running game writes its whole progress back the next time it saves. Whatever the import replaces is kept beside it in a dated `replaced-...` folder, and your Steam copy is only read, never written.
 - **Save folder** opens where all of this is kept.
 
-## Preview Lab and the other test levels
-
-The mod's own test rooms replace the game's level menu, so they need a separate copy of the game rather than your installed one. In PowerShell, from the extracted folder:
-
-```powershell
-./tools/backup-saves.ps1
-./tools/prepare-runtime.ps1
-```
-
-For a non-default installation, pass `-SteamDirectory 'D:\Steam'` to the backup script and `-GameDirectory 'D:\SteamLibrary\steamapps\common\Recursed'` to the preparation script. Then run **Start-Preview.cmd** and press Enter twice to open **Preview Lab**.
-
 ## Controls
 
 | Input | Action |
@@ -56,15 +45,12 @@ For a non-default installation, pass `-SteamDirectory 'D:\Steam'` to the backup 
 | Mouse back and forward buttons | Walk the preview history in either direction |
 | Backspace | Go back in preview history; close at the root |
 | Esc | Close the preview without pausing the game |
-| F7 | Developer diagnostic: redraw the active room, not a chest destination |
 
 Inspection is always on, and nothing is drawn over the game until you hover something: the controls are in the launcher window rather than on screen. The system pointer stays visible, including when moving between the game and the preview window, because it is what you aim with.
 
 The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
 
 Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
-
-The test menu includes **Preview Lab** (including a room with both return flames), stock **Chests** and **Flood**, **State Lab** for wet/global state, and **Render Lab** for comparing the native room and its self-referencing preview.
 
 ## What is rendered
 
@@ -80,37 +66,7 @@ An open preview resamples relevant game state on the render thread and redraws a
 
 Ordinary chest entry constructs a fresh room, so local objects inside a hypothetical destination still come from its room script. Outer previews use existing room instances. Carried-item branches, consecutive hypothetical entries, preserved jar instances, and cauldron rules are not fully modeled. Outer objects are reconstructed for display, so orientation and particle phase need not match the original instance exactly. See the [validation notes](docs/validation.md) for tested behavior and remaining GUI checks.
 
-## Build from source
-
-Requires Visual Studio 2022 C++ x86 tools and a Windows SDK. `build.cmd` locates the installation with `vswhere`, including Community, Enterprise, and Build Tools installations. Lua 5.2.4 is downloaded from its official source and checked against a fixed SHA-256.
-
-```powershell
-./tools/bootstrap.ps1
-./build.cmd
-./build/ci_test.exe
-```
-
-To run integration tests against your local game:
-
-```powershell
-./tools/backup-saves.ps1
-./tools/prepare-runtime.ps1
-./build/snapshot_test.exe
-./build/render_test.exe
-./tools/verify-backup.ps1
-```
-
-To create the same patch archive as CI:
-
-```powershell
-./tools/package.ps1
-```
-
-GitHub Actions builds on `windows-2022`, runs authored fixture tests without game files, and uploads the patch ZIP on pushes to `main`, version tags, pull requests, and manual dispatches. Game-dependent tests and native rendering validation must run locally. See [validation notes](docs/validation.md).
-
-Use English in repository content and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages, such as `feat(preview): render isolated rooms with the native engine`.
-
-## Compatibility and save backups
+## Compatibility
 
 Supported `Recursed.exe` SHA-256:
 
@@ -120,7 +76,7 @@ Supported `Recursed.exe` SHA-256:
 
 The launcher validates the executable, and the DLL checks instruction signatures and vtables. Other builds are rejected. The original installation is not modified.
 
-`tools/backup-saves.ps1` copies both your Steam progress and this build's own save folder. Backups live under `backups/<timestamp>/`, with source paths and SHA-256 values in `manifest.json`. The verification script checks both backups and original files. No restore script automatically overwrites progress. Exit the game and Steam before any manual restore. Runtime copies, backups, reverse-engineering dumps, dependencies, and build output are excluded from version control and patch packaging.
+Your progress is your own Steam progress, and the mod only adds to it what the game itself would. An isolated run keeps its own copy under `%LOCALAPPDATA%\Recursed++\saves`, and an import there keeps what it replaced.
 
 ## Implementation
 
@@ -135,6 +91,6 @@ The launcher validates the executable, and the DLL checks instruction signatures
 
 The native path borrows read-only level metadata while owning its room stack, scene entities, and rendering resources. It isolates random-number use and room numbering. The normal game draw runs last. A failed gameplay-field audit disables native previews for that process; this bounded audit is not a proof that every engine field is unchanged.
 
-Logs are written to `build/peek.log`. Automated local input tests may set `RECURSED_PEEK_TEST_INPUT=1` to buffer short SFML key events; the normal launcher script clears it.
+Logs are written to `%LOCALAPPDATA%\Recursed++\peek.log`. Building, testing and the authored test levels are described in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-See the [changelog](CHANGELOG.md), [design](DESIGN.md), [reverse-engineering notes](FEASIBILITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). This is an unofficial mod and is not affiliated with Recursed's developers.
+See the [changelog](CHANGELOG.md), [design](DESIGN.md), [reverse-engineering notes](FEASIBILITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md), which the launcher also shows on its Notices page. This is an unofficial mod and is not affiliated with Recursed's developers.

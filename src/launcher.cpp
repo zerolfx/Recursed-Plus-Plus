@@ -11,7 +11,7 @@ int wmain(){
     const auto plugin=(folder/L"recursed_peek.dll").wstring();
     const auto game=fs::absolute(folder.parent_path()/L"runtime/Recursed.exe").wstring();
     std::wstring error;
-    const auto id=peek::launchModded(game,plugin,peek::SteamUse::Isolated,error);
+    const auto id=peek::launchModded(game,plugin,peek::SteamUse::Isolated,true,error);
     if(!id){fwprintf(stderr,L"%ls\n",error.c_str());return 2;}
     wprintf(L"Recursed++ started. PID=%lu. Hover a chest to look inside it.\n",id);
     return 0;

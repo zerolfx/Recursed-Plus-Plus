@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include "embedded_plugin.h"
 #include "game_launch.h"
 #include "save_store.h"
 #include "steam_scan.h"
@@ -19,14 +20,14 @@
 // starts it with the plugin loaded, and carries its own instructions so nothing extra has
 // to be drawn over the game.
 namespace {
-enum : int { kPath=1001, kBrowse, kDetect, kLaunch, kImport, kFolder, kHelp, kStatus, kGameLabel, kTabs, kIsolated, kAdvancedHelp };
+enum : int { kPath=1001, kBrowse, kDetect, kLaunch, kImport, kFolder, kHelp, kStatus, kGameLabel, kTabs, kIsolated, kAdvancedHelp, kNotices };
 // Scanning, launching, and copying saves all touch disks that can be asleep, missing, or being
 // scanned by antivirus, so none of them runs on the thread that has to keep painting.
 enum : UINT { kStage=WM_APP+1, kFound, kLaunched, kSteamSaves, kImported };
 HWND gWindow, gPath, gBrowse, gDetect, gLaunch, gImport, gFolder, gHelp, gStatus;
 // Playing is the whole point; keeping progress somewhere else is a decision almost nobody has
 // to make, so it lives on a second page instead of in front of every player.
-HWND gTabs, gIsolated, gAdvancedHelp;
+HWND gTabs, gIsolated, gAdvancedHelp, gNotices;
 int gTab=0;
 HFONT gFont, gMonoFont;
 std::wstring gGame;
@@ -89,10 +90,10 @@ L"  is kept in a dated folder beside it. Close the game first, or the running\r\
 L"  game writes its own progress back over the copy.\r\n"
 L"  Save folder opens where all of this is kept.";
 
-std::wstring pluginPath(){
-    wchar_t own[MAX_PATH];GetModuleFileNameW(nullptr,own,MAX_PATH);
-    return (std::filesystem::path(own).parent_path()/L"recursed_peek.dll").wstring();
-}
+// Always the copy carried inside this executable, never one that happens to sit beside it: the
+// download is a single file, and a file of that name in a Downloads folder is not ours to load
+// into a game. Developers iterate through the console launcher, which does load a loose build.
+std::wstring pluginPath(std::wstring& error){return peek::embeddedPlugin(error);}
 
 // Shows what was chosen and whether it can actually be started, so the button never lies
 // about what will happen.
@@ -119,11 +120,14 @@ unsigned __stdcall scanThread(void*){
     return 0;
 }
 
-struct LaunchJob {std::wstring exe,plugin;peek::SteamUse steam;};
+struct LaunchJob {std::wstring exe;peek::SteamUse steam;};
 unsigned __stdcall launchThread(void* raw){
     std::unique_ptr<LaunchJob> job((LaunchJob*)raw);
     std::wstring error;
-    const auto id=peek::launchModded(job->exe,job->plugin,job->steam,error,
+    post(kStage,0,L"Unpacking the mod...");
+    const auto plugin=pluginPath(error);
+    if(plugin.empty()){post(kLaunched,0,error);return 0;}
+    const auto id=peek::launchModded(job->exe,plugin,job->steam,false,error,
         [](const wchar_t* text){post(kStage,0,text);});
     post(kLaunched,id,error);
     return 0;
@@ -189,6 +193,7 @@ void showTab(int tab){
     gTab=tab;
     for(HWND h:{gLaunch,gHelp})ShowWindow(h,tab==0?SW_SHOW:SW_HIDE);
     for(HWND h:{gIsolated,gImport,gFolder,gAdvancedHelp})ShowWindow(h,tab==1?SW_SHOW:SW_HIDE);
+    ShowWindow(gNotices,tab==2?SW_SHOW:SW_HIDE);
 }
 
 void browse(){
@@ -233,6 +238,8 @@ void layout(HWND window){
     SetWindowPos(gHelp,nullptr,left,py+tall+gap,width,playHelp>scale(80)?playHelp:scale(80),SWP_NOZORDER);
     const int advancedHelp=page.bottom-(ay+tall+gap)-gap;
     SetWindowPos(gAdvancedHelp,nullptr,left,ay+tall+gap,width,advancedHelp>scale(80)?advancedHelp:scale(80),SWP_NOZORDER);
+    const int notices=page.bottom-page.top-2*gap;
+    SetWindowPos(gNotices,nullptr,left,page.top+gap,width,notices>scale(80)?notices:scale(80),SWP_NOZORDER);
     SetWindowPos(gStatus,nullptr,pad,r.bottom-pad-row,r.right-2*pad,row,SWP_NOZORDER);
 }
 
@@ -250,7 +257,7 @@ void makeFonts(){
 void applyFonts(){
     for(HWND h:{GetDlgItem(gWindow,kGameLabel),gPath,gDetect,gBrowse,gLaunch,gImport,gFolder,gIsolated,gTabs,gStatus})
         SendMessageW(h,WM_SETFONT,(WPARAM)gFont,TRUE);
-    for(HWND h:{gHelp,gAdvancedHelp})SendMessageW(h,WM_SETFONT,(WPARAM)gMonoFont,TRUE);
+    for(HWND h:{gHelp,gAdvancedHelp,gNotices})SendMessageW(h,WM_SETFONT,(WPARAM)gMonoFont,TRUE);
 }
 
 LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
@@ -265,13 +272,17 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         gTabs=child(window,WC_TABCONTROLW,L"",WS_CLIPSIBLINGS|WS_TABSTOP,kTabs,gFont);
         {TCITEMW item{};item.mask=TCIF_TEXT;
          item.pszText=(LPWSTR)L"Play";SendMessageW(gTabs,TCM_INSERTITEMW,0,(LPARAM)&item);
-         item.pszText=(LPWSTR)L"Advanced";SendMessageW(gTabs,TCM_INSERTITEMW,1,(LPARAM)&item);}
+         item.pszText=(LPWSTR)L"Advanced";SendMessageW(gTabs,TCM_INSERTITEMW,1,(LPARAM)&item);
+         item.pszText=(LPWSTR)L"Notices";SendMessageW(gTabs,TCM_INSERTITEMW,2,(LPARAM)&item);}
         gLaunch=child(window,L"BUTTON",L"Play with Recursed++",BS_DEFPUSHBUTTON|WS_TABSTOP,kLaunch,gFont);
         gHelp=child(window,L"EDIT",kHelpText,WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kHelp,gMonoFont);
         gIsolated=child(window,L"BUTTON",L"Play isolated: keep progress here and leave Steam alone",BS_AUTOCHECKBOX|WS_TABSTOP,kIsolated,gFont);
         gImport=child(window,L"BUTTON",L"Import from Steam",BS_PUSHBUTTON|WS_TABSTOP,kImport,gFont);
         gFolder=child(window,L"BUTTON",L"Save folder",BS_PUSHBUTTON|WS_TABSTOP,kFolder,gFont);
         gAdvancedHelp=child(window,L"EDIT",kAdvancedText,WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kAdvancedHelp,gMonoFont);
+        {const auto notices=peek::embeddedNotices();
+         gNotices=child(window,L"EDIT",notices.empty()?L"The third-party notices are missing from this build.":notices.c_str(),
+                        WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kNotices,gMonoFont);}
         gStatus=child(window,L"STATIC",L"Looking for Recursed...",SS_LEFT|SS_ENDELLIPSIS,kStatus,gFont);
         EnableWindow(gLaunch,FALSE);
         showTab(0);
@@ -354,7 +365,7 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         case kLaunch:
             if(!gBusy&&!gGame.empty()){
                 setBusy(true);
-                startThread(launchThread,new LaunchJob{gGame,pluginPath(),isolated()?peek::SteamUse::Isolated:peek::SteamUse::Steam});
+                startThread(launchThread,new LaunchJob{gGame,isolated()?peek::SteamUse::Isolated:peek::SteamUse::Steam});
             }
             return 0;
         }

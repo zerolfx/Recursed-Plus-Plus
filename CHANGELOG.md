@@ -29,6 +29,14 @@ landed. Entries describe the behaviour, not the patch.
 
 ### Changed
 
+- The download is one file. `Recursed-Plus-Plus.exe` carries the mod inside itself and unpacks it
+  under `%LOCALAPPDATA%\Recursed++\bin` when you press Play, so there is nothing to extract and
+  nothing to keep together.
+- The authored test levels, the scripts that prepare a runtime copy, the console launcher and the
+  F7 diagnostic are no longer part of what a player downloads. They are in a separate developer
+  bundle, and the diagnostic only exists in a run started for development.
+- The launcher carries the third-party notices with it, on a Notices page, since the executable is
+  now the copy the licence travels with.
 - The modded game's window is titled Recursed++, so it is not mistaken for an ordinary run.
 - Nothing is drawn over the game any more except a preview you asked for: the banner and the
   key reminders are gone, and the controls live in the launcher window.

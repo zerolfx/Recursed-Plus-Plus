@@ -112,6 +112,18 @@ Checked on 2026-09-22 against both the runtime copy and the installed Steam copy
 - The mouse back button steps from `pool` back to `keyroom`, and the forward button returns to `pool`, over the game and in the separate window.
 - Nothing is drawn over the game until something is hovered: the banner and the key reminders are gone, and the preview panel carries the room, the depth and any error only.
 
+## One executable, and what a player does not get
+
+Checked on 2026-09-22:
+
+- `build/Recursed-Plus-Plus.exe` grew from 1,300,992 to 3,466,240 bytes, which is the launcher plus the 1,789,440-byte mod it now carries.
+- Copied on its own into an empty folder and started there, it unpacked `%LOCALAPPDATA%\Recursed++\bin\recursed_peek-<hash>.dll` and the modded game came up with Steam connected. Nothing else was in the folder.
+- The unpacked name is taken from the contents, so a second launch while an older game still holds its copy open writes a different file instead of failing on a locked one, and a copy that is already there is reused rather than rewritten.
+- Started with `RECURSED_PEEK_DEV=1` and `RECURSED_PEEK_TEST_INPUT=1` set in the shell, the launcher still reported `Automated test input buffering: off; developer diagnostics: off` in the game it started: a player's run states that environment rather than inheriting it, so F7 cannot be reached from a player download.
+- `tools/package.ps1` refuses to publish a launcher whose embedded bytes are not the `build/recursed_peek.dll` of that build, which is the failure a reordered or half-finished build would otherwise ship silently.
+- `tools/check-repository.ps1` fails if the resources stop carrying the mod or the notices, if the window launcher starts naming a DLL beside itself, if a developer diagnostic loses its flag, or if README.md starts pointing a player at the developer bundle's files.
+- The launcher's Notices page shows THIRD_PARTY_NOTICES.md from inside the executable, which is what carries Lua's licence with the copy now that there is no archive.
+
 ## Save isolation
 
 The local backup verifier confirmed eleven backed-up files and unchanged original hashes, covering both the Steam progress and this build's own save folder. The verifier had been reading a multi-entry manifest as one entry, which made it fail on any backup of more than one file; it now walks the entries. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.
