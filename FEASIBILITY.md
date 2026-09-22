@@ -71,12 +71,15 @@ Room constructor is `0x440120`, destructor `0x41BBD0`. Tile entries are 12 bytes
 | Box | `0x410210` | 0x50 |
 | Key | `0x416210` | 0x50 |
 | Lock | `0x416790` | 0x50 |
+| Record | `0x418120` | 0x70 |
 | Crystal variants | `0x412580` | 0x5C |
 | Door / return portal | `0x412E00` | 0x5C |
 
+The record constructor takes the voice-clip path as a `const char*` and stores it at +0x4C, where a chest stores its destination room; live reads use that offset for both. Construction only builds the `assets/record` model and copies that string, so no audio subsystem is touched.
+
 Old MSVC strings use the game's constructors/destructors; all native allocations use the matching game CRT. The preview owns its stack and entities, borrows immutable level metadata, and never destroys the borrowed host. Room destruction detaches entities and destroys containers; entity destruction is a separate ownership step.
 
-Only key spin and draw transforms advance, alongside native renderer effects. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. The `player` script declaration creates only a Door in the preview; `yield` creates its green variant. A private empty entry context is sufficient for the audited constructor, attach, draw, and destructor paths. Gameplay portal update/interaction and Player construction are never invoked. Unsupported entity kinds use the resource-rendering fallback.
+Only key spin and draw transforms advance, alongside native renderer effects. A record needs no equivalent: its rotation is gated on +0x48, which its constructor clears, so a resting record does not spin in the original game either. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. The `player` script declaration creates only a Door in the preview; `yield` creates its green variant. A private empty entry context is sufficient for the audited constructor, attach, draw, and destructor paths. Gameplay portal update/interaction and Player construction are never invoked. Unsupported entity kinds use the resource-rendering fallback.
 
 ## Validation boundary
 

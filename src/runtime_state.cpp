@@ -51,7 +51,7 @@ void collect(GlobalState& result, const std::vector<uint32_t>& entities, uintptr
         object.kind = entityKind(e);
         object.x = read<float>(e + 8); object.y = read<float>(e + 12); object.global = true;
         if (!std::isfinite(object.x) || !std::isfinite(object.y)) throw std::runtime_error("Invalid object position");
-        if (object.kind == "chest") object.target = oldString(e + 0x4c);
+        if (object.kind == "chest" || object.kind == "record") object.target = oldString(e + 0x4c);
         result.objects.push_back(std::move(object));
     }
 }
@@ -140,7 +140,8 @@ Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,cons
             Object object{kind,"",read<float>(e+8),read<float>(e+12),read<uint8_t>(e+0x45)!=0};
             object.sourceId=e;
             if(!std::isfinite(object.x)||!std::isfinite(object.y))throw std::runtime_error("Invalid live object position");
-            if(kind=="chest")object.target=oldString(e+0x4c);
+            // Chest keeps its destination room at +0x4c; Record keeps its voice-clip path there.
+            if(kind=="chest"||kind=="record")object.target=oldString(e+0x4c);
             result.hasGlobals|=object.global;result.objects.push_back(std::move(object));
         }
     }catch(const std::exception& e){result.tiles={};result.objects.clear();result.error=e.what();}

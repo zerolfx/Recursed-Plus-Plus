@@ -20,16 +20,16 @@ GitHub Actions compiles the x86 DLL, launcher, diagnostic utility, and all test 
 
 ## Local game-dependent tests
 
-`build/snapshot_test.exe` loads 100/100 stock and additional-content starting rooms. It also checks test-room positions and targets, dry/wet branches, global-object merging, meshes, particle definitions, and native tile names.
+`build/snapshot_test.exe` loads 100/100 stock and additional-content starting rooms. It also checks test-room and stock-room object contents, positions and targets, dry/wet branches, global-object merging, meshes, particle definitions, and native tile names.
 
-`build/render_test.exe` checks fallback animation, 30 Hz cache reuse, unchanged terrain pixels and input snapshots, then exports 48 frames under `build/effects-frames`. The tested frames differed in 8,051 pixels. These are fallback-renderer tests, not native-engine output tests.
+`build/render_test.exe` checks fallback animation, 30 Hz cache reuse, unchanged terrain pixels and input snapshots, and that a record reaches its `ring` mesh entry instead of the schematic fallback, then exports 48 frames under `build/effects-frames`. The tested frames differed in 8,051 pixels. These are fallback-renderer tests, not native-engine output tests.
 
 Passing script extraction does not imply exact puzzle-state simulation or support for every native entity.
 
 ## Native rendering GUI checks
 
 - Active-room replay: F7 invokes the original renderer again into a separate framebuffer. This diagnostic is not a destination preview.
-- Preview Lab: the left chest displays keyroom using native stone tiles, rotating key, gold lock, lighting, background, and chest particles.
+- Preview Lab: the left chest displays keyroom using native stone tiles, rotating key, gold lock, record ring, lighting, background, and chest particles.
 - O opens the same path in a separate window at Depth 1; see `native-destination.png`.
 - Clicking its chest enters pool at Depth 2. The native background changes with depth, and native water baseline and foam are visible; see `native-water.png`.
 - Backspace releases the pool scene and returns to keyroom. O docks the preview. Esc closes it without opening the pause menu.
@@ -54,6 +54,14 @@ Computer Use checked the isolated build on 2026-09-22:
 Native spawn placement was also confirmed from the executable: flag mask 0x21, twenty collision moves of 0.05 tiles. The x86 build, asset-free fixtures, and save verification pass. Earlier local snapshot and fallback-render test results remain applicable.
 
 The current [parent-room capture](outside-preview.png) was saved with the pointer outside the captured window. It shows Depth -1 after real entry, without implementation labels or manual liquid controls.
+
+## Record entity increment
+
+Computer Use checked the isolated build on 2026-09-22 after adding native Record support:
+
+- Stock Chests/basic5 `under`, the room this increment targets, now draws through the original renderer: the record shows its ring model, the return flame is native fire, and the key rotates across frames. Previously the one unsupported record sent the whole scene to the fallback renderer, which drew the record as a schematic dot and the flame as an outlined ellipse.
+- Preview Lab keyroom: the record settles onto the same platform as the key instead of hanging in free air.
+- The game and its preview windows were closed at the end; no Recursed process remained.
 
 ## Earlier state and interaction checks
 

@@ -32,6 +32,7 @@ function keyroom(wet)
   Spawn("player",3,12)
   Spawn("key",12,8.5)
   Spawn("lock",16,11.5)
+  Spawn("record",13.5,8.5,"sounds/voices/c5")
   Spawn("chest",7,12.5,"pool")
 end
 function pool(wet)

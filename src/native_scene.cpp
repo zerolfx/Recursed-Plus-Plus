@@ -37,7 +37,7 @@ static int tileIndex(uintptr_t liveHost,const Tile& tile){
 static bool entity(const Object& o,bool settle){
  uintptr_t ctor=0;size_t bytes=0;
  const bool portal=o.kind=="player"||o.kind=="yield";
- if(portal){ctor=0x412e00;bytes=0x5c;}else if(o.kind=="chest"){ctor=0x410fe0;bytes=0x7c;}else if(o.kind=="box"){ctor=0x410210;bytes=0x50;}else if(o.kind=="key"){ctor=0x416210;bytes=0x50;}else if(o.kind=="lock"){ctor=0x416790;bytes=0x50;}else if(o.kind=="crystal"||o.kind=="diamond"||o.kind=="ruby"){ctor=0x412580;bytes=0x5c;}else return false;
+ if(portal){ctor=0x412e00;bytes=0x5c;}else if(o.kind=="chest"){ctor=0x410fe0;bytes=0x7c;}else if(o.kind=="box"){ctor=0x410210;bytes=0x50;}else if(o.kind=="key"){ctor=0x416210;bytes=0x50;}else if(o.kind=="lock"){ctor=0x416790;bytes=0x50;}else if(o.kind=="record"){ctor=0x418120;bytes=0x70;}else if(o.kind=="crystal"||o.kind=="diamond"||o.kind=="ruby"){ctor=0x412580;bytes=0x5c;}else return false;
  void* p=allocate(bytes);if(!p)return false;
  if(portal){
   // Every chest destination has a parent room. Spawn("player") also creates
@@ -48,6 +48,10 @@ static bool entity(const Object& o,bool settle){
  }else if(o.kind=="chest"){
   alignas(8) unsigned char name[24]{};using StringCtor=void*(__thiscall*)(void*,const char*);fn<StringCtor>(0x401e20)(name,o.target.c_str());
   using ChestCtor=void*(__thiscall*)(void*,void*);fn<ChestCtor>(ctor)(p,name);fn<Method>(0x401e80)(name);
+ }else if(o.kind=="record"){
+  // Record keeps the voice-clip path it was spawned with. Construction only
+  // stores that string; playback belongs to the gameplay update we never run.
+  using RecordCtor=void*(__thiscall*)(void*,const char*);fn<RecordCtor>(ctor)(p,o.target.c_str());
  }else if(bytes==0x5c){using CrystalCtor=void*(__thiscall*)(void*,int);fn<CrystalCtor>(ctor)(p,o.kind=="diamond"?1:o.kind=="ruby"?2:0);}else fn<Construct>(ctor)(p);
  auto e=(uintptr_t)p;at<float>(e,8)=o.x;at<float>(e,12)=o.y;at<unsigned char>(e,0x45)=o.global?1:0;
  // Match Host::spawn (0x4409A0) and global restore (0x440CD0):
@@ -80,7 +84,7 @@ void clearNativeScene(){
 bool prepareNativeScene(uintptr_t liveHost,const Snapshot& s,const std::string& key,int depth){
  error.clear();if(!liveHost||!s.error.empty()){error="Scene unavailable";return false;}
  if(depth<1||depth>8||s.objects.size()>2048){error="Scene exceeds preview limits";return false;}
- for(const auto& o:s.objects)if(o.kind!="player"&&o.kind!="yield"&&o.kind!="chest"&&o.kind!="box"&&o.kind!="key"&&o.kind!="lock"&&o.kind!="crystal"&&o.kind!="diamond"&&o.kind!="ruby"){error="Native scene does not yet support "+o.kind;return false;}
+ for(const auto& o:s.objects)if(o.kind!="player"&&o.kind!="yield"&&o.kind!="chest"&&o.kind!="box"&&o.kind!="key"&&o.kind!="lock"&&o.kind!="crystal"&&o.kind!="diamond"&&o.kind!="ruby"&&o.kind!="record"){error="Native scene does not yet support "+o.kind;return false;}
  std::array<int,300> indices{};for(size_t i=0;i<300;i++){indices[i]=s.live?s.tiles[i].nativeIndex:tileIndex(liveHost,s.tiles[i]);if(indices[i]<0||indices[i]>4096){error="Native tile definition missing: "+s.tiles[i].definition;return false;}}
  std::ostringstream stamp;stamp.precision(9);stamp<<liveHost<<'|'<<key<<'|'<<depth<<'|'<<s.nativeDepth<<'|'<<s.live;for(size_t i=0;i<300;i++)stamp<<','<<s.tiles[i].kind<<':'<<indices[i];for(const auto& o:s.objects)stamp<<'|'<<o.kind<<o.target<<o.x<<','<<o.y<<o.global<<':'<<o.sourceId;
  if(room&&renderer&&signature==stamp.str())return true;

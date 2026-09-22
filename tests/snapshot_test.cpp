@@ -6,12 +6,18 @@
 #include <cassert>
 #include <iostream>
 #include <filesystem>
+#include <utility>
 int main(){
  auto a=peek::loadSnapshot("runtime","missions/peek-lab","keyroom",false);
- assert(a.error.empty());assert(a.objects.size()==4);assert(a.tiles[9*20+10].kind==1);
- bool key=false,chest=false;for(auto& o:a.objects){key|=o.kind=="key"&&o.x==12;chest|=o.kind=="chest"&&o.target=="pool";}assert(key&&chest);
+ assert(a.error.empty());assert(a.objects.size()==5);assert(a.tiles[9*20+10].kind==1);
+ bool key=false,chest=false,ring=false;for(auto& o:a.objects){key|=o.kind=="key"&&o.x==12;chest|=o.kind=="chest"&&o.target=="pool";ring|=o.kind=="record"&&o.target=="sounds/voices/c5";}assert(key&&chest&&ring);
  auto b=peek::loadSnapshot("runtime","missions/peek-lab","pool",false);assert(b.error.empty());assert(b.tiles[11*20+9].kind==3);
  auto c=peek::loadSnapshot("runtime","missions/basic5","start",false);assert(c.error.empty());assert(c.objects.size()==5);
+ // Stock room holding a record: its fourth argument is a voice-clip path, not a room.
+ auto under=peek::loadSnapshot("runtime","missions/basic5","under",false);
+ assert(under.error.empty()&&under.objects.size()==3);
+ bool voice=false;for(auto& o:under.objects)voice|=o.kind=="record"&&o.target=="sounds/voices/c5";
+ assert(voice);
  assert(c.tileset=="tiles/cave"&&c.pattern=="backgrounds/checker");
  assert(c.tiles[0].frame==8&&c.tiles[0].kind==1);
  assert(a.tiles[9*20+10].definition=="brick_u"&&b.tiles[11*20+9].definition=="watersurface");
@@ -19,8 +25,9 @@ int main(){
  assert(portals.error.empty()&&portals.objects.size()==3);
  assert(portals.objects[0].kind=="player"&&portals.objects[0].x==3&&portals.objects[0].y==12);
  assert(portals.objects[1].kind=="yield"&&portals.objects[1].x==10&&portals.objects[2].target=="pool");
- for(const auto& kind:{"chest","key","box","crystal","cauldron","jar"}){
-   auto mesh=peek::loadMesh("runtime",std::string(kind)=="jar"?"yield":kind,kind);
+ // Asset file first, then the mesh entry inside it; they differ for jar and record.
+ for(const auto& model:{std::pair<const char*,const char*>{"chest","chest"},{"key","key"},{"box","box"},{"crystal","crystal"},{"cauldron","cauldron"},{"yield","jar"},{"record","ring"}}){
+   auto kind=model.second;auto mesh=peek::loadMesh("runtime",model.first,model.second);
    if(!mesh.error.empty())std::cerr<<kind<<": "<<mesh.error<<"\n";
    assert(mesh.error.empty()&&mesh.faces.size()>12&&mesh.faces.size()<8192);
    for(const auto& face:mesh.faces)for(const auto& p:face.p)assert(std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&std::fabs(p.x)<3&&std::fabs(p.y)<3&&std::fabs(p.z)<3);

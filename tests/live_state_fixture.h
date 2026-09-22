@@ -54,6 +54,11 @@ inline void testLiveRoomRead(){
  chest[0x58]=1;
  auto green=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
  assert(green.error.empty()&&green.objects[0].kind=="yield");
+ // Record stores its voice-clip path where Chest stores its destination room.
+ memcpy(descriptor.data()+8,".?AVRecord@@",13);
+ auto record=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
+ assert(record.error.empty()&&record.objects.size()==1&&record.objects[0].kind=="record"&&record.objects[0].target=="inside");
+ memcpy(descriptor.data()+8,".?AVDoor@@",11);
  assert(!peek::readRoomReference(ptr(host.data()),ptr(outside.data()),1).error.empty());
  assert(!peek::readRoomReference(ptr(host.data()),ptr(inside.data()),2).error.empty());
  tiles[0]=1000;
