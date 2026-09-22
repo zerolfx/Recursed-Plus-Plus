@@ -6,25 +6,30 @@ The preview now uses Recursed's original renderer for terrain, depth-dependent b
 
 ![Preview of the existing parent room](docs/outside-preview.png)
 
-## Download and run
+## Download and play
 
 1. Open this repository's **Actions** tab and select a successful **Build Windows patch** run.
-2. Download the `Recursed-Plus-Plus-windows-x86` artifact, then extract the patch archive inside it to a writable directory.
-3. Install Recursed through Steam. Only the executable fingerprint below is supported.
-4. In PowerShell, from the extracted directory, prepare your local copy:
+2. Download the `Recursed-Plus-Plus-windows-x86` artifact and extract the archive inside it into one folder.
+3. Run **Recursed-Plus-Plus.exe**.
+
+It looks for your Steam copy of Recursed on its own; if you keep the game somewhere it cannot find, or you have no Steam, choose `Recursed.exe` yourself. It refuses anything that is not the executable fingerprint below, because the mod reads addresses measured against that one build. The controls are printed in the launcher window, so nothing extra is drawn over the game.
+
+The archive contains the mod, its launcher, the developer scripts, and the authored test levels. It contains no game executable, game assets, or save files.
+
+**What it does to your installation.** Nothing is written into the game's folder, and your normal saves are not touched: the modded process starts with Steam initialization disabled and its configuration redirected to `%LOCALAPPDATA%\Recursed++\profile`, so it keeps its own progress. The one thing it shares with the unmodded game is `recursed.conf`, the graphics and sound settings the game writes next to itself. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
+
+Security software often blocks the mod, because loading code into another process is what a cheat would do. The launcher says so when that happens, and names the files to allow. `%LOCALAPPDATA%\Recursed++\peek.log` records what the mod did.
+
+## Preview Lab and the other test levels
+
+The mod's own test rooms replace the game's level menu, so they need a separate copy of the game rather than your installed one. In PowerShell, from the extracted folder:
 
 ```powershell
 ./tools/backup-saves.ps1
 ./tools/prepare-runtime.ps1
 ```
 
-For a non-default installation, pass `-SteamDirectory 'D:\Steam'` to the backup script and `-GameDirectory 'D:\SteamLibrary\steamapps\common\Recursed'` to the preparation script.
-
-5. Run **Start-Preview.cmd**. Press Enter twice to open **Preview Lab**.
-
-The archive contains the mod, launcher, scripts, and authored test levels. It contains no game executable, game assets, or save files. The game must be supplied from your own installation.
-
-**This is an experimental, isolated preview build, not a normal progression-saving setup.** The launcher starts only its own `runtime/Recursed.exe` copy, disables Steam initialization in that process, and redirects configuration to `build/test-profile/`. It never attaches to an existing game process. Launching the original game through Steam does not load the mod.
+For a non-default installation, pass `-SteamDirectory 'D:\Steam'` to the backup script and `-GameDirectory 'D:\SteamLibrary\steamapps\common\Recursed'` to the preparation script. Then run **Start-Preview.cmd** and press Enter twice to open **Preview Lab**.
 
 ## Controls
 

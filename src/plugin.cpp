@@ -17,6 +17,7 @@
 #include "room_art.h"
 #include "preview_window.h"
 #include "native_render.h"
+#include "support_folder.h"
 
 static HMODULE selfModule;
 static uintptr_t gameBase;
@@ -344,9 +345,20 @@ static void drawOverlay(){
 static void __fastcall displayHook(void* window,void*){frame++;if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();syncCursorVisibility(window);originalDisplay(window);chests.clear();}
 extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     gameBase=(uintptr_t)GetModuleHandleW(nullptr);
-    char own[MAX_PATH];GetModuleFileNameA(selfModule,own,MAX_PATH);char* sep=strrchr(own,'\\');if(!sep)return 0;*sep=0;
-    char logPath[MAX_PATH];sprintf_s(logPath,"%s\\peek.log",own);logFile=_fsopen(logPath,"w",_SH_DENYNO);
-    sprintf_s(profilePath,"%s\\test-profile",own);CreateDirectoryA(profilePath,nullptr);
+    // Not beside the DLL: a download extracted into Program Files cannot write there, and the
+    // game is manifested asInvoker, so a failed write is a real failure rather than one Windows
+    // quietly redirects into a VirtualStore copy.
+    const auto support=peek::supportFolder();
+    if(support.empty())return 0;
+    logFile=_wfsopen((support+L"\\peek.log").c_str(),L"w",_SH_DENYNO);
+    const auto profile=support+L"\\profile";
+    CreateDirectoryW(profile.c_str(),nullptr);
+    // The game asks for this through SHGetFolderPathA and opens it with the ANSI CRT, so it has
+    // to be a path the active code page can spell. A user name outside that code page would
+    // otherwise arrive as question marks and every save would fail somewhere unpredictable.
+    const auto narrow=peek::narrowUsable(profile);
+    if(narrow.empty())return 0;
+    strcpy_s(profilePath,MAX_PATH,narrow.c_str());
     char exe[MAX_PATH];GetModuleFileNameA(nullptr,exe,MAX_PATH);char* slash=strrchr(exe,'\\');if(!slash)return 0;*slash=0;gameRoot=exe;
     const unsigned char expected[]={0x55,0x8b,0xec,0x83,0xec,0x20};
     if(memcmp(address(0x440A20),expected,sizeof expected)){log("Build signature mismatch");return 0;}
