@@ -17,6 +17,14 @@ const unsigned char* resource(const wchar_t* name,DWORD& bytes){
     bytes=found?SizeofResource(nullptr,found):0;
     return (const unsigned char*)(loaded?LockResource(loaded):nullptr);
 }
+// Held for the life of the launcher: a file nobody may delete while it is open is one antivirus
+// cannot take between here and the load, and one another launcher's sweep cannot take either.
+HANDLE held=INVALID_HANDLE_VALUE;
+bool hold(const std::filesystem::path& file){
+    if(held!=INVALID_HANDLE_VALUE)CloseHandle(held);
+    held=CreateFileW(file.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    return held!=INVALID_HANDLE_VALUE;
+}
 std::wstring shortDigest(const unsigned char* data,size_t bytes){
     BCRYPT_ALG_HANDLE alg=nullptr;BCRYPT_HASH_HANDLE hash=nullptr;unsigned char digest[32]{};
     bool ok=BCryptOpenAlgorithmProvider(&alg,BCRYPT_SHA256_ALGORITHM,nullptr,0)>=0;
@@ -62,9 +70,16 @@ std::wstring embeddedPlugin(std::wstring& error){
     const auto folder=fs::path(support)/L"bin";
     fs::create_directories(folder,ec);
     const auto target=folder/(L"recursed_peek-"+digest+L".dll");
-    // The name says what is inside it, so a copy that is already there is already the right one -
-    // including the one a running game has open and Windows will not let anybody overwrite.
-    if(fs::file_size(target,ec)==bytes&&!ec)return target.wstring();
+    // The name says what is inside it, so a copy that is already there is usually the right one -
+    // including the one a running game has open and Windows will not let anybody overwrite. Usually
+    // is not enough for something about to be loaded into a game: read it back and compare.
+    if(fs::file_size(target,ec)==bytes&&!ec&&hold(target)){
+        std::vector<unsigned char> existing(bytes);
+        DWORD got=0;
+        if(ReadFile(held,existing.data(),bytes,&got,nullptr)&&got==bytes&&shortDigest(existing.data(),bytes)==digest)
+            return target.wstring();
+        CloseHandle(held);held=INVALID_HANDLE_VALUE;
+    }
     auto pending=target;pending+=L".new";
     HANDLE handle=CreateFileW(pending.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
     DWORD written=0;
@@ -78,6 +93,10 @@ std::wstring embeddedPlugin(std::wstring& error){
         // copy is the one this run wanted anyway.
         if(fs::file_size(target,ec)==bytes&&!ec)return target.wstring();
         error=L"The mod could not be unpacked to:\n"+target.wstring()+L"\n\nSecurity software usually stops this. Allow Recursed-Plus-Plus.exe and try again.";
+        return {};
+    }
+    if(!hold(target)){
+        error=L"The mod was unpacked and then disappeared:\n"+target.wstring()+L"\n\nSecurity software usually does this. Allow Recursed-Plus-Plus.exe and try again.";
         return {};
     }
     removeOthers(folder,target);

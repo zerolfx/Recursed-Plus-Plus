@@ -38,8 +38,26 @@ if ($Kind -ne 'player') {
         'docs/validation.md', 'docs/chest-preview.png', 'docs/outside-preview.png',
         'docs/native-destination.png', 'docs/native-water.png',
         'tools/prepare-runtime.ps1', 'tools/backup-saves.ps1', 'tools/verify-backup.ps1',
-        'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/nexus.lua'
+        'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/nexus.lua',
+        'AGENTS.md'
     )
+    # A file added under tools/, tests/ or docs/ is developer material by default, and silently
+    # leaving it out of the bundle is how a test level or a script goes missing for the next
+    # person. Every one of them is either shipped or listed here as deliberately not shipped.
+    $notShipped = @(
+        'tools/bootstrap.ps1', 'tools/check-repository.ps1', 'tools/package.ps1',
+        'tools/disasm.cjs', 'tools/inspect.cjs', 'tools/probe.cpp',
+        'tests/ci_test.cpp', 'tests/snapshot_test.cpp', 'tests/render_test.cpp',
+        'tests/live_state_fixture.h', 'tests/fixtures/custom/missions/test.lua',
+        'tests/fixtures/data/tiles/test.lua'
+    )
+    $tracked = @(git -C $projectRoot ls-files 'tools/*' 'tests/*' 'docs/*')
+    if ($LASTEXITCODE -ne 0) { throw 'Could not list tracked files.' }
+    foreach ($relative in $tracked) {
+        if ($files -notcontains $relative -and $notShipped -notcontains $relative) {
+            throw "$relative is neither in the developer bundle nor listed as deliberately left out of it."
+        }
+    }
     foreach ($relative in $files) {
         $target = Join-Path $stage $relative
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null

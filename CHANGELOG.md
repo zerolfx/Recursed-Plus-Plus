@@ -37,6 +37,8 @@ landed. Entries describe the behaviour, not the patch.
   bundle, and the diagnostic only exists in a run started for development.
 - The launcher carries the third-party notices with it, on a Notices page, since the executable is
   now the copy the licence travels with.
+- Starting a second game while one is already running asks first, because two of them write their
+  whole progress back independently and the one that closes last decides what happened.
 - The modded game's window is titled Recursed++, so it is not mistaken for an ordinary run.
 - Nothing is drawn over the game any more except a preview you asked for: the banner and the
   key reminders are gone, and the controls live in the launcher window.

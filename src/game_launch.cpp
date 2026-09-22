@@ -105,7 +105,7 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
         stop(pi);
         if(!fs::exists(plugin,ec))error=L"The mod was removed while the launcher was using it:\n"+plugin+L"\n\nAntivirus software usually does this. Allow this launcher and try again.";
         else if(load.error==ERROR_ACCESS_DENIED)error=L"Windows refused to let the launcher load the mod into the game.\n\nThis is what security software blocks. Allow it, then try again:\n"+own();
-        else error=L"The mod could not be loaded into the game"+(load.error?L" (error "+std::to_wstring(load.error)+L")":std::wstring())+L".";
+        else error=L"The mod could not be loaded into the game"+(load.error?L" (error "+std::to_wstring(load.error)+L")":std::wstring())+L".\n\nAllow these, then try again:\n"+own()+L"\n"+plugin;
         return 0;
     }
     // LoadLibraryW hands back the module base in the target, so the entry point is that plus

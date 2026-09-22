@@ -364,6 +364,9 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
             return 0;}
         case kLaunch:
             if(!gBusy&&!gGame.empty()){
+                // Two games write their whole progress back independently, so the one that closes
+                // last decides what happened - in an isolated run and in Steam Cloud alike.
+                if(gameRunning()&&MessageBoxW(window,L"Recursed is already running.\n\nTwo of them save over each other's progress, because each writes back everything it has. Start a second one anyway?",L"Recursed++",MB_YESNO|MB_ICONWARNING)!=IDYES)return 0;
                 setBusy(true);
                 startThread(launchThread,new LaunchJob{gGame,isolated()?peek::SteamUse::Isolated:peek::SteamUse::Steam});
             }
