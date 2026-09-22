@@ -2,7 +2,7 @@
 #include <windows.h>
 #include "room_art.h"
 namespace peek {
-enum class PreviewAction {None,Close,Back,Dock,Select};
+enum class PreviewAction {None,Close,Back,Forward,Dock,Select};
 struct WindowAction {PreviewAction action=PreviewAction::None;Object object{};};
 bool showPreviewWindow(HWND owner);
 void closePreviewWindow();

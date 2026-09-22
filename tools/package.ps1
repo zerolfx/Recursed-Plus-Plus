@@ -8,8 +8,8 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 # Explicit allowlist: never include runtime, saves, logs, or proprietary assets.
 $files = @(
     'build/Recursed-Plus-Plus.exe', 'build/recursed_peek.exe', 'build/recursed_peek.dll',
-    'Start-Preview.cmd', 'README.md', 'THIRD_PARTY_NOTICES.md', 'DESIGN.md', 'FEASIBILITY.md',
-    'docs/validation.md', 'docs/outside-preview.png',
+    'Start-Preview.cmd', 'README.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md', 'DESIGN.md', 'FEASIBILITY.md',
+    'docs/validation.md', 'docs/chest-preview.png', 'docs/outside-preview.png',
     'tools/prepare-runtime.ps1', 'tools/backup-saves.ps1', 'tools/verify-backup.ps1',
     'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/nexus.lua'
 )

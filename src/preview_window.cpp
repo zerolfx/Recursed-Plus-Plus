@@ -30,6 +30,9 @@ static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){switch(msg){
  case WM_CLOSE:actions.push_back({PreviewAction::Close});closePreviewWindow();return 0;
  case WM_KEYDOWN:if(l&(1L<<30))return 0;if(w==VK_ESCAPE){escapeHeld=true;actions.push_back({PreviewAction::Close});closePreviewWindow();}else if(w==VK_BACK)actions.push_back({PreviewAction::Back});else if(w=='O')actions.push_back({PreviewAction::Dock});return 0;
  case WM_LBUTTONDOWN:{auto r=fit(hwnd);float s=(r.right-r.left)/20.f;if(s<=0)return 0;float x=((short)LOWORD(l)-r.left)/s,y=((short)HIWORD(l)-r.top)/s;for(size_t i=0;i<snapshot.objects.size();i++){auto& o=snapshot.objects[i];if(((o.kind=="chest"&&!o.target.empty())||o.kind=="player"||o.kind=="yield")&&x>=o.x-.65f&&x<=o.x+.65f&&y>=o.y-(o.kind=="chest"?.9f:.4f)&&y<=o.y+(o.kind=="chest"?.65f:1.f)){actions.push_back({PreviewAction::Select,o});break;}}return 0;}
+ // The side buttons of a mouse walk the preview history, here as well as over the game.
+ case WM_XBUTTONDOWN:actions.push_back({HIWORD(w)==XBUTTON1?PreviewAction::Back:PreviewAction::Forward});return TRUE;
+ case WM_XBUTTONUP:return TRUE;
  case WM_DESTROY:popup=nullptr;return 0;
  }return DefWindowProcW(hwnd,msg,w,l);}
 }

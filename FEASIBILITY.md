@@ -18,13 +18,13 @@ The executable uses MSVC 2013, SFML 2, Lua 5.2.4, GLEW, and OpenGL. It exposes n
 | `0x440A20` | Observe real room construction and invalidate preview state |
 | SFML `Window::display` | Draw the inspection UI |
 | SFML `Window::pollEvent` and keyboard query | Navigation and separate-window input isolation |
-| SFML `Window::setMouseCursorVisible` | Keep the system pointer visible during inspection; restore the game's requested visibility on F8 |
+| SFML `Window::setMouseCursorVisible` | Keep the system pointer visible, which is what chests are hovered with |
 | CRT `fopen` | Observe mission files; host +0x08 is a tileset string, not the mission name |
 | Every `steam_api.dll` import, `SHGetFolderPathA` | Answer the game's Steam calls inside the process and isolate its configuration |
 
 Instruction signatures and executable fingerprints constrain these hooks to the supported build.
 
-Window initialization calls `setMouseCursorVisible(false)` at `0x43E121` through IAT slot `0x4775F8`. The mod intercepts this request and preserves its original value. Inspection forces visibility through SFML itself, so its stored cursor state agrees with the display policy. F8 reapplies the saved game value; ordinary frames do not repeatedly change the Windows `ShowCursor` counter. The Win32 preview window keeps its own arrow cursor.
+Window initialization calls `setMouseCursorVisible(false)` at `0x43E121` through IAT slot `0x4775F8`. The mod intercepts this request and forces visibility through SFML itself, so its stored cursor state agrees with what is on screen. Ordinary frames do not repeatedly change the Windows `ShowCursor` counter. The Win32 preview window keeps its own arrow cursor.
 
 ## Progress and Steam storage
 

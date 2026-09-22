@@ -4,7 +4,7 @@ A Windows x86 mod that lets you inspect rooms inside chests and look back throug
 
 The preview now uses Recursed's original renderer for terrain, depth-dependent backgrounds, lighting, models, chest particles, key rotation, and water effects. Room state remains approximate; rendering fidelity and entry-state simulation are separate concerns.
 
-![Preview of the existing parent room](docs/outside-preview.png)
+![A chest previewed inside the game, showing the key, lock and chest waiting in the room it leads to](docs/chest-preview.png)
 
 ## Download and play
 
@@ -16,17 +16,21 @@ It looks for your Steam copy of Recursed on its own; if you keep the game somewh
 
 The archive contains the mod, its launcher, the developer scripts, and the authored test levels. It contains no game executable, game assets, or save files.
 
-**What it does to your installation.** Nothing is written into the game's folder, and your normal saves are not touched: the modded process never reaches Steam, keeps its progress in `%LOCALAPPDATA%\Recursed++\saves`, and has its configuration redirected to `%LOCALAPPDATA%\Recursed++\profile`. The one thing it shares with the unmodded game is `recursed.conf`, the graphics and sound settings the game writes next to itself. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
+**What it does to your installation.** Nothing is written into the game's folder. You play the progress you already have, through Steam, with achievements and cloud saves as they always were; only the graphics and sound settings are kept apart, under `%LOCALAPPDATA%\Recursed++\profile`. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
 
 Security software often blocks the mod, because loading code into another process is what a cheat would do. The launcher says so when that happens, and names the files to allow. `%LOCALAPPDATA%\Recursed++\peek.log` records what the mod did.
 
 ## Your progress
 
-The modded run keeps its own progress, separate from the copy you normally play, under `%LOCALAPPDATA%\Recursed++\saves`. **Save folder** in the launcher opens it. It carries over between runs.
+By default the mod plays through Steam like the game always has: the achievements, statistics and cloud saves are your own. Nothing about where progress lives changes, and the launcher's **Play** page has nothing to decide.
 
-Recursed stores progress through Steam Cloud and nowhere else, and skips the write entirely when Steam is missing, which is why an isolated run used to start over every time. This build hands the game a private stand-in for that storage instead, writing the same files to that folder. They are the files Steam keeps in `userdata\<account>\497780\remote`, in the same format, so a save can be carried either way by copying it.
+Recursed stores progress through Steam Cloud and nowhere else, and skips the write entirely when Steam did not answer, which is why a run without Steam used to start over every time. When Steam is not running, the mod gives the game storage of its own instead, under `%LOCALAPPDATA%\Recursed++\saves`. Those are the files Steam keeps in `userdata\<account>\497780\remote`, in the same format, so a save can be carried either way by copying it.
 
-**Import from Steam** copies what you have already done in your Steam copy into this build. Close the game first: a running game writes its whole progress back the next time it saves. The progress an import replaces is kept beside it in a dated `replaced-...` folder, and your Steam copy is only read, never written.
+The launcher's **Advanced** page holds the rest, for the times you want the mod kept away from your own progress:
+
+- **Play isolated** keeps the game away from Steam entirely. Progress lives in that save folder alone, achievements are not unlocked, and what you normally play is never written to.
+- **Import from Steam** copies what you have already done in Steam into that folder, which is what an isolated run starts from. Close the game first: a running game writes its whole progress back the next time it saves. Whatever the import replaces is kept beside it in a dated `replaced-...` folder, and your Steam copy is only read, never written.
+- **Save folder** opens where all of this is kept.
 
 ## Preview Lab and the other test levels
 
@@ -49,12 +53,12 @@ For a non-default installation, pass `-SteamDirectory 'D:\Steam'` to the backup 
 | O | Move the preview between the game and a separate window |
 | Click a chest inside the pinned preview | Explore another level, up to depth 8 |
 | Click a red or green return flame | Look outside the room |
+| Mouse back and forward buttons | Walk the preview history in either direction |
 | Backspace | Go back in preview history; close at the root |
 | Esc | Close the preview without pausing the game |
-| F8 | Toggle inspection |
 | F7 | Developer diagnostic: redraw the active room, not a chest destination |
 
-The system pointer stays visible while inspection is enabled, including when moving between the game and the preview window. F8 restores the game's requested cursor visibility when inspection is disabled.
+Inspection is always on, and nothing is drawn over the game until you hover something: the controls are in the launcher window rather than on screen. The system pointer stays visible, including when moving between the game and the preview window, because it is what you aim with.
 
 The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
 
@@ -133,4 +137,4 @@ The native path borrows read-only level metadata while owning its room stack, sc
 
 Logs are written to `build/peek.log`. Automated local input tests may set `RECURSED_PEEK_TEST_INPUT=1` to buffer short SFML key events; the normal launcher script clears it.
 
-See [design](DESIGN.md), [reverse-engineering notes](FEASIBILITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). This is an unofficial mod and is not affiliated with Recursed's developers.
+See the [changelog](CHANGELOG.md), [design](DESIGN.md), [reverse-engineering notes](FEASIBILITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). This is an unofficial mod and is not affiliated with Recursed's developers.

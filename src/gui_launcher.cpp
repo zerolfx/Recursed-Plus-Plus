@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <commdlg.h>
+#include <commctrl.h>
 #include <objbase.h>
 #include <shellapi.h>
 #include <tlhelp32.h>
@@ -18,11 +19,15 @@
 // starts it with the plugin loaded, and carries its own instructions so nothing extra has
 // to be drawn over the game.
 namespace {
-enum : int { kPath=1001, kBrowse, kDetect, kLaunch, kImport, kFolder, kHelp, kStatus, kGameLabel };
+enum : int { kPath=1001, kBrowse, kDetect, kLaunch, kImport, kFolder, kHelp, kStatus, kGameLabel, kTabs, kIsolated, kAdvancedHelp };
 // Scanning, launching, and copying saves all touch disks that can be asleep, missing, or being
 // scanned by antivirus, so none of them runs on the thread that has to keep painting.
 enum : UINT { kStage=WM_APP+1, kFound, kLaunched, kSteamSaves, kImported };
 HWND gWindow, gPath, gBrowse, gDetect, gLaunch, gImport, gFolder, gHelp, gStatus;
+// Playing is the whole point; keeping progress somewhere else is a decision almost nobody has
+// to make, so it lives on a second page instead of in front of every player.
+HWND gTabs, gIsolated, gAdvancedHelp;
+int gTab=0;
 HFONT gFont, gMonoFont;
 std::wstring gGame;
 int gDpi=96;
@@ -38,7 +43,6 @@ void post(UINT message,WPARAM w,const std::wstring& text){
 const wchar_t* kHelpText=
 L"Controls\r\n"
 L"\r\n"
-L"  F8                        Turn inspection on or off.\r\n"
 L"  Hover a chest or flame    Preview the room it leads to.\r\n"
 L"  Left click                Pin that preview in the game window.\r\n"
 L"  Shift + left click        Open the preview in its own window.\r\n"
@@ -46,32 +50,44 @@ L"  O                         Move the preview between the game and that window.
 L"  Click a chest inside      Go one room deeper, up to eight.\r\n"
 L"  Click a red or green      Look at the room outside this one.\r\n"
 L"  flame inside\r\n"
+L"  Mouse back and forward    Walk the rooms you have looked at, both ways.\r\n"
 L"  Backspace                 Go back; at the first room this closes the preview.\r\n"
-L"  Esc                       Close the preview without pausing.\r\n"
+L"  Esc                       Close the preview without pausing the game.\r\n"
 L"\r\n"
 L"Depth is counted from the room you are standing in: 1 is inside the chest, 0 is\r\n"
 L"where you are, -1 is outside.\r\n"
 L"\r\n"
-L"Your progress\r\n"
-L"\r\n"
-L"  The modded run keeps its own progress, in the save folder this window opens.\r\n"
-L"  It carries over between runs, and it is separate from the progress Steam keeps\r\n"
-L"  for the game you normally play. Import from Steam copies what you have done\r\n"
-L"  there into this build; whatever it replaces is kept in a dated folder beside it.\r\n"
-L"  Close the game before importing, or the running game writes its own progress\r\n"
-L"  back over it.\r\n"
-L"\r\n"
 L"What this does to your game\r\n"
 L"\r\n"
-L"  It never writes to the game's folder and it does not touch your normal saves.\r\n"
-L"  Steam is never contacted, so achievements and cloud saves stay out of it. It\r\n"
-L"  does share the game's own graphics and sound settings file.\r\n"
+L"  It never writes to the game's folder. You play the progress you already have,\r\n"
+L"  through Steam, with achievements and cloud saves as they always were.\r\n"
 L"  Only the Steam Windows build this mod was measured against can be started.\r\n"
 L"  Close the game to end the modded session; nothing is left running.\r\n"
 L"\r\n"
 L"If the game does not start, security software is the usual reason: the mod has to\r\n"
 L"load itself into the game, which looks like what a cheat would do. Allow the two\r\n"
 L"files that came with this launcher and try again.";
+
+// The second page. Everything here changes where progress goes, which is a decision a player
+// only makes on purpose.
+const wchar_t* kAdvancedText=
+L"Steam\r\n"
+L"\r\n"
+L"  This build plays through Steam like the game always has: your own progress,\r\n"
+L"  your achievements, your cloud saves. When Steam is not running it keeps that\r\n"
+L"  session's progress in the save folder below instead, so nothing is lost.\r\n"
+L"\r\n"
+L"  Play isolated keeps the game away from Steam entirely. Progress then lives in\r\n"
+L"  the save folder alone, achievements are not unlocked, and the progress you\r\n"
+L"  normally play is never written to.\r\n"
+L"\r\n"
+L"The save folder\r\n"
+L"\r\n"
+L"  Import from Steam copies what you have already done in Steam into that\r\n"
+L"  folder, which is what an isolated run starts from. Whatever it replaces\r\n"
+L"  is kept in a dated folder beside it. Close the game first, or the running\r\n"
+L"  game writes its own progress back over the copy.\r\n"
+L"  Save folder opens where all of this is kept.";
 
 std::wstring pluginPath(){
     wchar_t own[MAX_PATH];GetModuleFileNameW(nullptr,own,MAX_PATH);
@@ -103,11 +119,11 @@ unsigned __stdcall scanThread(void*){
     return 0;
 }
 
-struct LaunchJob {std::wstring exe,plugin;};
+struct LaunchJob {std::wstring exe,plugin;peek::SteamUse steam;};
 unsigned __stdcall launchThread(void* raw){
     std::unique_ptr<LaunchJob> job((LaunchJob*)raw);
     std::wstring error;
-    const auto id=peek::launchModded(job->exe,job->plugin,error,
+    const auto id=peek::launchModded(job->exe,job->plugin,job->steam,error,
         [](const wchar_t* text){post(kStage,0,text);});
     post(kLaunched,id,error);
     return 0;
@@ -163,7 +179,16 @@ void setBusy(bool busy){
     gBusy=busy;
     EnableWindow(gLaunch,!busy&&!gGame.empty()&&peek::supportedGame(gGame));
     EnableWindow(gDetect,!busy);EnableWindow(gBrowse,!busy);
-    EnableWindow(gImport,!busy);EnableWindow(gFolder,!busy);
+    EnableWindow(gImport,!busy);EnableWindow(gFolder,!busy);EnableWindow(gIsolated,!busy);
+}
+
+bool isolated(){return SendMessageW(gIsolated,BM_GETCHECK,0,0)==BST_CHECKED;}
+
+// One page at a time. The controls of the other page keep their state; they are only hidden.
+void showTab(int tab){
+    gTab=tab;
+    for(HWND h:{gLaunch,gHelp})ShowWindow(h,tab==0?SW_SHOW:SW_HIDE);
+    for(HWND h:{gIsolated,gImport,gFolder,gAdvancedHelp})ShowWindow(h,tab==1?SW_SHOW:SW_HIDE);
 }
 
 void browse(){
@@ -185,7 +210,7 @@ HWND child(HWND parent,const wchar_t* cls,const wchar_t* text,DWORD style,int id
 
 void layout(HWND window){
     RECT r;GetClientRect(window,&r);
-    const int pad=scale(14),row=scale(26),gap=scale(8),button=scale(96);
+    const int pad=scale(14),row=scale(26),gap=scale(8),button=scale(96),tall=scale(34);
     int y=pad;
     SetWindowPos(GetDlgItem(window,kGameLabel),nullptr,pad,y,r.right-2*pad,row,SWP_NOZORDER);
     y+=row;
@@ -194,13 +219,20 @@ void layout(HWND window){
     SetWindowPos(gDetect,nullptr,pad+pathWidth+gap,y,button,row,SWP_NOZORDER);
     SetWindowPos(gBrowse,nullptr,pad+pathWidth+gap+button+gap,y,button,row,SWP_NOZORDER);
     y+=row+scale(12);
-    const int tall=scale(34);
-    SetWindowPos(gLaunch,nullptr,pad,y,scale(200),tall,SWP_NOZORDER);
-    SetWindowPos(gImport,nullptr,pad+scale(200)+gap,y,scale(160),tall,SWP_NOZORDER);
-    SetWindowPos(gFolder,nullptr,pad+scale(200)+gap+scale(160)+gap,y,scale(120),tall,SWP_NOZORDER);
-    y+=tall+scale(12);
-    const int helpHeight=r.bottom-y-pad-row-gap;
-    SetWindowPos(gHelp,nullptr,pad,y,r.right-2*pad,helpHeight>scale(80)?helpHeight:scale(80),SWP_NOZORDER);
+    RECT tabs{pad,y,r.right-pad,r.bottom-pad-row-gap};
+    SetWindowPos(gTabs,nullptr,tabs.left,tabs.top,tabs.right-tabs.left,tabs.bottom-tabs.top,SWP_NOZORDER);
+    RECT page=tabs;SendMessageW(gTabs,TCM_ADJUSTRECT,FALSE,(LPARAM)&page);
+    const int left=page.left+gap,width=page.right-page.left-2*gap;
+    int py=page.top+gap;
+    SetWindowPos(gLaunch,nullptr,left,py,scale(200),tall,SWP_NOZORDER);
+    SetWindowPos(gIsolated,nullptr,left,py+scale(6),width,row,SWP_NOZORDER);
+    int ay=py+row+scale(12);
+    SetWindowPos(gImport,nullptr,left,ay,scale(160),tall,SWP_NOZORDER);
+    SetWindowPos(gFolder,nullptr,left+scale(160)+gap,ay,scale(120),tall,SWP_NOZORDER);
+    const int playHelp=page.bottom-(py+tall+gap)-gap;
+    SetWindowPos(gHelp,nullptr,left,py+tall+gap,width,playHelp>scale(80)?playHelp:scale(80),SWP_NOZORDER);
+    const int advancedHelp=page.bottom-(ay+tall+gap)-gap;
+    SetWindowPos(gAdvancedHelp,nullptr,left,ay+tall+gap,width,advancedHelp>scale(80)?advancedHelp:scale(80),SWP_NOZORDER);
     SetWindowPos(gStatus,nullptr,pad,r.bottom-pad-row,r.right-2*pad,row,SWP_NOZORDER);
 }
 
@@ -216,9 +248,9 @@ void makeFonts(){
 }
 
 void applyFonts(){
-    for(HWND h:{GetDlgItem(gWindow,kGameLabel),gPath,gDetect,gBrowse,gLaunch,gImport,gFolder,gStatus})
+    for(HWND h:{GetDlgItem(gWindow,kGameLabel),gPath,gDetect,gBrowse,gLaunch,gImport,gFolder,gIsolated,gTabs,gStatus})
         SendMessageW(h,WM_SETFONT,(WPARAM)gFont,TRUE);
-    SendMessageW(gHelp,WM_SETFONT,(WPARAM)gMonoFont,TRUE);
+    for(HWND h:{gHelp,gAdvancedHelp})SendMessageW(h,WM_SETFONT,(WPARAM)gMonoFont,TRUE);
 }
 
 LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
@@ -230,12 +262,19 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         gPath=child(window,L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|ES_READONLY,kPath,gFont);
         gDetect=child(window,L"BUTTON",L"Find it",BS_PUSHBUTTON|WS_TABSTOP,kDetect,gFont);
         gBrowse=child(window,L"BUTTON",L"Choose...",BS_PUSHBUTTON|WS_TABSTOP,kBrowse,gFont);
+        gTabs=child(window,WC_TABCONTROLW,L"",WS_CLIPSIBLINGS|WS_TABSTOP,kTabs,gFont);
+        {TCITEMW item{};item.mask=TCIF_TEXT;
+         item.pszText=(LPWSTR)L"Play";SendMessageW(gTabs,TCM_INSERTITEMW,0,(LPARAM)&item);
+         item.pszText=(LPWSTR)L"Advanced";SendMessageW(gTabs,TCM_INSERTITEMW,1,(LPARAM)&item);}
         gLaunch=child(window,L"BUTTON",L"Play with Recursed++",BS_DEFPUSHBUTTON|WS_TABSTOP,kLaunch,gFont);
+        gHelp=child(window,L"EDIT",kHelpText,WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kHelp,gMonoFont);
+        gIsolated=child(window,L"BUTTON",L"Play isolated: keep progress here and leave Steam alone",BS_AUTOCHECKBOX|WS_TABSTOP,kIsolated,gFont);
         gImport=child(window,L"BUTTON",L"Import from Steam",BS_PUSHBUTTON|WS_TABSTOP,kImport,gFont);
         gFolder=child(window,L"BUTTON",L"Save folder",BS_PUSHBUTTON|WS_TABSTOP,kFolder,gFont);
-        gHelp=child(window,L"EDIT",kHelpText,WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kHelp,gMonoFont);
+        gAdvancedHelp=child(window,L"EDIT",kAdvancedText,WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kAdvancedHelp,gMonoFont);
         gStatus=child(window,L"STATIC",L"Looking for Recursed...",SS_LEFT|SS_ENDELLIPSIS,kStatus,gFont);
         EnableWindow(gLaunch,FALSE);
+        showTab(0);
         layout(window);
         startThread(scanThread,nullptr);
         return 0;
@@ -250,7 +289,7 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
     case kLaunched:{
         std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
         setBusy(false);
-        if(w)say(L"Running. Press F8 in the game to turn inspection on.");
+        if(w)say(L"Running. Hover a chest in the game to look inside it.");
         else {say(L"The game did not start.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
         return 0;}
     case kSteamSaves:{
@@ -275,6 +314,9 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         if(w)say((L"Imported "+std::to_wstring((int)w)+L" save files from Steam.").c_str());
         else {say(L"Nothing was copied.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
         return 0;}
+    case WM_NOTIFY:
+        if(((LPNMHDR)l)->idFrom==kTabs&&((LPNMHDR)l)->code==TCN_SELCHANGE)showTab((int)SendMessageW(gTabs,TCM_GETCURSEL,0,0));
+        return 0;
     case WM_SIZE: layout(window); return 0;
     case WM_DPICHANGED:{
         gDpi=HIWORD(w);
@@ -312,7 +354,7 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         case kLaunch:
             if(!gBusy&&!gGame.empty()){
                 setBusy(true);
-                startThread(launchThread,new LaunchJob{gGame,pluginPath()});
+                startThread(launchThread,new LaunchJob{gGame,pluginPath(),isolated()?peek::SteamUse::Isolated:peek::SteamUse::Steam});
             }
             return 0;
         }
@@ -330,6 +372,8 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
     // Opening the save folder goes through the shell, which needs an apartment on this thread.
     CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
+    INITCOMMONCONTROLSEX common{sizeof common,ICC_TAB_CLASSES};
+    InitCommonControlsEx(&common);
     WNDCLASSEXW cls{sizeof cls};
     cls.lpfnWndProc=proc;cls.hInstance=instance;cls.lpszClassName=L"RecursedPlusPlusLauncher";
     // This project does not define UNICODE, so the stock resource ids come through as narrow

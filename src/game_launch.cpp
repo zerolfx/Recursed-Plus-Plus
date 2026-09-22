@@ -38,8 +38,8 @@ bool supportedGame(const std::wstring& path){
     char hex[65]{};for(int i=0;i<32;i++)sprintf_s(hex+i*2,3,"%02X",digest[i]);
     return std::string(hex)==kSupported;
 }
-unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,std::wstring& error,
-                           const std::function<void(const wchar_t*)>& stage){
+unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,SteamUse steam,
+                           std::wstring& error,const std::function<void(const wchar_t*)>& stage){
     namespace fs=std::filesystem;
     error.clear();
     auto step=[&](const wchar_t* text){if(stage)stage(text);};
@@ -65,6 +65,14 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,st
     // with no window and no message. The plugin resolves its copies of those assets from the
     // executable's folder, so the two agree only while this stays the exe's own directory.
     const auto folder=fs::path(exe).parent_path();
+    // The child inherits this environment. Steam identifies a game it did not start itself by
+    // the app id in the environment, so setting it is what lets the real API come up, and
+    // clearing it is what keeps an isolated run from reaching a Steam this launcher was itself
+    // started from. The plugin reads its own flag and decides what to do when Steam is absent.
+    const bool useSteam=steam==SteamUse::Steam;
+    SetEnvironmentVariableW(L"SteamAppId",useSteam?L"497780":nullptr);
+    SetEnvironmentVariableW(L"SteamGameId",useSteam?L"497780":nullptr);
+    SetEnvironmentVariableW(L"RECURSED_PEEK_STEAM",useSteam?L"1":L"0");
     std::wstring cmd=L"\""+exe+L"\"";
     STARTUPINFOW si{};si.cb=sizeof si;si.dwFlags=STARTF_USESHOWWINDOW;si.wShowWindow=SW_SHOWNORMAL;PROCESS_INFORMATION pi{};
     step(L"Starting the game...");

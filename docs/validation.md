@@ -86,7 +86,7 @@ Not observed on screen: a jar or a froth, because neither has a Lua spawn path a
 
 ## Cursor visibility change
 
-The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook now overrides that request while inspection is enabled and restores it when F8 disables inspection. F8 off/on and switching between game and popup were tested interactively. Test-mode logs read `GetCursorInfo` after the visibility change: `systemVisible=0` when inspection is disabled and `systemVisible=1` when enabled. This distinguishes the actual system cursor from the Computer Use pointer marker. Cursor diagnostics are emitted only with `RECURSED_PEEK_TEST_INPUT=1`.
+The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook overrides that request, since the pointer is what chests are hovered with. Switching between game and popup was tested interactively. Test-mode logs read `GetCursorInfo` after the visibility change: `systemVisible=0` when inspection is disabled and `systemVisible=1` when enabled. This distinguishes the actual system cursor from the Computer Use pointer marker. Cursor diagnostics are emitted only with `RECURSED_PEEK_TEST_INPUT=1`.
 
 ## Progress storage
 
@@ -99,6 +99,18 @@ The game reads and writes its progress through Steam Cloud only, and its own gua
 - The game's other Steam entry points are answered in the process and never reach Steam: the context it is given carries storage alone, and its user, utility, and stats entries stay null, which its own null checks already cover, so no achievement or stat call is made.
 
 Opening the save folder from the launcher uses the shell. On the test machine Explorer refused newly created folders while it was in a stale state, including from a hand-typed path, which is an Explorer condition rather than a launcher one; the launcher reports the path either way.
+
+## Steam, the window, and input
+
+Checked on 2026-09-22 against both the runtime copy and the installed Steam copy:
+
+- Started from the launcher with its default, the run logs `Steam connected; achievements and cloud saves are the game's own`, and the cloud save it read was not rewritten by a session that ended at the title screen.
+- Started isolated, the same build logs `Steam not used; progress kept in this build's save folder` and keeps the round trip described above. The launcher passes the choice through the environment; the plugin decides from it and from whether Steam actually answered.
+- The window of a modded run is titled Recursed++, which is also how the screenshot in the README was identified.
+- Escape with a preview open closes the preview and leaves the game running; the pause menu does not appear. The game reads the key state before the event that announces the press, which is why answering the event alone was not enough and the key state itself is answered while a preview is open.
+- Escape with no preview open still opens the game's own pause menu.
+- The mouse back button steps from `pool` back to `keyroom`, and the forward button returns to `pool`, over the game and in the separate window.
+- Nothing is drawn over the game until something is hovered: the banner and the key reminders are gone, and the preview panel carries the room, the depth and any error only.
 
 ## Save isolation
 
