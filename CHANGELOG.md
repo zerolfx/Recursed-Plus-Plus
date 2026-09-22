@@ -39,6 +39,10 @@ landed. Entries describe the behaviour, not the patch.
   now the copy the licence travels with.
 - Starting a second game while one is already running asks first, because two of them write their
   whole progress back independently and the one that closes last decides what happened.
+- Starting without Steam asks first as well: the game cannot reach the progress you normally play,
+  so that session would start from the mod's own save folder and stay there.
+- An import now leaves the save folder holding that Steam account's progress and nothing else, says
+  when only part of it could be copied, and no longer reports "1 save files".
 - The modded game's window is titled Recursed++, so it is not mistaken for an ordinary run.
 - Nothing is drawn over the game any more except a preview you asked for: the banner and the
   key reminders are gone, and the controls live in the launcher window.

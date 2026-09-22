@@ -21,14 +21,20 @@ try {
     foreach ($payload in 'recursed_peek.dll', 'THIRD_PARTY_NOTICES.md') {
         if ($rc -notmatch [regex]::Escape($payload)) { throw "src/launcher.rc no longer embeds $payload, so the single executable is incomplete." }
     }
+    # The resource names are the only thing tying the script that stores the payloads to the code
+    # that reads them back, and a rename on one side fails at run time, not at build time.
+    $unpacker = [IO.File]::ReadAllText((Join-Path $projectRoot 'src/embedded_plugin.cpp'))
+    foreach ($name in ([regex]::Matches($rc, '(?m)^(RECURSEDPEEK\w+)\s+RCDATA') | ForEach-Object { $_.Groups[1].Value })) {
+        if ($unpacker -notmatch [regex]::Escape($name)) { throw "src/launcher.rc stores $name, which src/embedded_plugin.cpp never looks for." }
+    }
     $gui = [IO.File]::ReadAllText((Join-Path $projectRoot 'src/gui_launcher.cpp'))
-    if ($gui -match 'recursed_peek\.dll') { throw 'src/gui_launcher.cpp names a DLL beside the launcher; it must run the copy embedded in the executable.' }
+    if ($gui -match 'L"recursed_peek\.dll"') { throw 'src/gui_launcher.cpp names a DLL beside the launcher; it must run the copy embedded in the executable.' }
     $plugin = [IO.File]::ReadAllText((Join-Path $projectRoot 'src/plugin.cpp'))
-    foreach ($line in ($plugin -split "`n" | Where-Object { $_ -match 'queuedNative=true' })) {
+    foreach ($line in ($plugin -split "`n" | Where-Object { $_ -match 'queuedNative\s*=\s*true' })) {
         if ($line -notmatch 'developerMode') { throw "A developer diagnostic is reachable without the developer flag: $($line.Trim())" }
     }
     $readme = [IO.File]::ReadAllText((Join-Path $projectRoot 'README.md'))
-    foreach ($developerOnly in 'Start-Preview\.cmd', '\btools/', '\btests/', 'build\.cmd', 'recursed_peek\.exe', 'RECURSED_PEEK_', 'Preview Lab') {
+    foreach ($developerOnly in 'Start-Preview\.cmd', 'prepare-runtime\.ps1', 'backup-saves\.ps1', 'build\.cmd', 'recursed_peek', 'RECURSED_PEEK_', 'Preview Lab') {
         if ($readme -match $developerOnly) { throw "README.md points a player at something only the developer bundle has: $developerOnly" }
     }
     Write-Output "PASS: $($tracked.Count) tracked files checked for excluded files and Chinese text, and the player download is separated from the developer one."

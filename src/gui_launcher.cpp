@@ -33,6 +33,8 @@ HFONT gFont, gMonoFont;
 std::wstring gGame;
 int gDpi=96;
 bool gBusy=false;
+// Set once the player picks a game themselves, so a scan that finishes later leaves it alone.
+bool gChosen=false;
 
 int scale(int n){return MulDiv(n,gDpi,96);}
 void say(const wchar_t* text){SetWindowTextW(gStatus,text);}
@@ -60,14 +62,16 @@ L"where you are, -1 is outside.\r\n"
 L"\r\n"
 L"What this does to your game\r\n"
 L"\r\n"
-L"  It never writes to the game's folder. You play the progress you already have,\r\n"
-L"  through Steam, with achievements and cloud saves as they always were.\r\n"
+L"  It never writes to the game's folder. With Steam running you play the progress\r\n"
+L"  you already have, achievements and cloud saves included. Without it, the game\r\n"
+L"  cannot reach that progress at all, so the session is kept in this build's own\r\n"
+L"  save folder instead and the launcher says so before it starts.\r\n"
 L"  Only the Steam Windows build this mod was measured against can be started.\r\n"
 L"  Close the game to end the modded session; nothing is left running.\r\n"
 L"\r\n"
 L"If the game does not start, security software is the usual reason: the mod has to\r\n"
-L"load itself into the game, which looks like what a cheat would do. Allow the two\r\n"
-L"files that came with this launcher and try again.";
+L"load itself into the game, which looks like what a cheat would do. Allow this\r\n"
+L"launcher and try again; it will name the files.";
 
 // The second page. Everything here changes where progress goes, which is a decision a player
 // only makes on purpose.
@@ -171,6 +175,19 @@ unsigned __stdcall importThread(void* raw){
     return 0;
 }
 
+// The game's progress lives in Steam Cloud, so without the Steam client there is nothing for it
+// to read or write. Whether this process could talk to it is not knowable up front; whether the
+// client is there at all is, and that is the case worth warning about.
+bool steamRunning(){
+    HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
+    if(snapshot==INVALID_HANDLE_VALUE)return true;
+    PROCESSENTRY32W entry{sizeof entry};bool running=false;
+    for(BOOL more=Process32FirstW(snapshot,&entry);more&&!running;more=Process32NextW(snapshot,&entry))
+        running=_wcsicmp(entry.szExeFile,L"steam.exe")==0;
+    CloseHandle(snapshot);
+    return running;
+}
+
 // Which account a save belongs to means little; when it was last played identifies it.
 std::wstring playedOn(unsigned long long written){
     FILETIME stored{(DWORD)written,(DWORD)(written>>32)},local{};SYSTEMTIME date{};
@@ -204,7 +221,7 @@ void browse(){
     dialog.lpstrFile=buffer;dialog.nMaxFile=MAX_PATH;
     dialog.lpstrTitle=L"Where is Recursed.exe?";
     dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
-    if(GetOpenFileNameW(&dialog))setGame(buffer,nullptr);
+    if(GetOpenFileNameW(&dialog)){gChosen=true;setGame(buffer,nullptr);}
 }
 
 HWND child(HWND parent,const wchar_t* cls,const wchar_t* text,DWORD style,int id,HFONT font){
@@ -295,7 +312,7 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         return 0;}
     case kFound:{
         std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
-        setGame(text.get(),w?L"Found your Steam copy.":nullptr);
+        if(!gChosen)setGame(text.get(),w?L"Found your Steam copy.":nullptr);
         return 0;}
     case kLaunched:{
         std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
@@ -322,7 +339,13 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
     case kImported:{
         std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
         setBusy(false);
-        if(w)say((L"Imported "+std::to_wstring((int)w)+L" save files from Steam.").c_str());
+        if(w){
+            const int copied=(int)w;
+            say((copied==1?std::wstring(L"Imported one save file from Steam."):L"Imported "+std::to_wstring(copied)+L" save files from Steam.").c_str());
+            // Some of it arriving is not the same as all of it arriving, and a blend of two
+            // accounts is worse than an import that did not happen.
+            if(text.get()&&*text.get())MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);
+        }
         else {say(L"Nothing was copied.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
         return 0;}
     case WM_NOTIFY:
@@ -367,6 +390,10 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
                 // Two games write their whole progress back independently, so the one that closes
                 // last decides what happened - in an isolated run and in Steam Cloud alike.
                 if(gameRunning()&&MessageBoxW(window,L"Recursed is already running.\n\nTwo of them save over each other's progress, because each writes back everything it has. Start a second one anyway?",L"Recursed++",MB_YESNO|MB_ICONWARNING)!=IDYES)return 0;
+                // The game reads and writes its progress through Steam and nowhere else. Without
+                // Steam it cannot reach the progress the player thinks they are continuing, and
+                // finding that out afterwards means replaying hours into the wrong save.
+                if(!isolated()&&!steamRunning()&&MessageBoxW(window,L"Steam is not running, so the game cannot reach the progress you normally play.\n\nThis session would start from what is in this build's own save folder, and stay there. Start it anyway?",L"Recursed++",MB_YESNO|MB_ICONWARNING)!=IDYES)return 0;
                 setBusy(true);
                 startThread(launchThread,new LaunchJob{gGame,isolated()?peek::SteamUse::Isolated:peek::SteamUse::Steam});
             }

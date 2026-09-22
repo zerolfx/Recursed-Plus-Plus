@@ -8,5 +8,7 @@
 - Keep player-facing UI focused on rooms, depth, navigation, and actionable errors. Do not display renderer names, engine details, implementation status, or debugging labels during normal play.
 - Derive water conditions from game state. Do not add manual wet/dry controls to the player interface.
 - Open previews must refresh when their source state changes. Read existing outer-room instances; ordinary chest destinations must follow fresh-entry semantics and saved global state. Close invalid previews instead of retaining stale object pointers.
-- Test against the isolated runtime and profile. Preserve save backups and keep game files, saves, dependencies, and build artifacts out of version control.
+- Test against the isolated runtime and profile. A test that has to use real Steam progress backs it
+  up first with `tools/backup-saves.ps1` and says so in the validation notes. Preserve save backups and
+  keep game files, saves, dependencies, and build artifacts out of version control.
 - After interactive testing, close the isolated game and its preview windows and verify that the test process has exited.

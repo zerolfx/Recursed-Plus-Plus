@@ -124,6 +124,8 @@ Checked on 2026-09-22:
 - `tools/package.ps1` refuses to publish a launcher whose embedded bytes are not the `build/recursed_peek.dll` of that build, which is the failure a reordered or half-finished build would otherwise ship silently.
 - `tools/check-repository.ps1` fails if the resources stop carrying the mod or the notices, if the window launcher starts naming a DLL beside itself, if a developer diagnostic loses its flag, or if README.md starts pointing a player at the developer bundle's files.
 - The launcher's Notices page shows THIRD_PARTY_NOTICES.md from inside the executable, which is what carries Lua's licence with the copy now that there is no archive.
+- The executable CI built was downloaded from its own run, put in a folder holding nothing else, and started the modded game with Steam connected. A second launch from the same folder reused the unpacked copy without rewriting it, and the copy an earlier build had left behind was swept.
+- `tools/check-repository.ps1` was checked against a deliberate break: renaming one of the two resources in src/embedded_plugin.cpp fails it with the name that no longer matches, and the check passes again once reverted.
 
 ## Save isolation
 

@@ -114,6 +114,9 @@ int importSaves(const std::wstring& from,const std::vector<std::string>& files,c
             wchar_t stamp[32]{};
             swprintf_s(stamp,L"replaced-%04u%02u%02u-%02u%02u%02u",now.wYear,now.wMonth,now.wDay,now.wHour,now.wMinute,now.wSecond);
             kept=fs::path(into)/stamp;
+            // Two imports within the same second would otherwise share a folder, and the second
+            // would bury what the first set aside.
+            for(int attempt=2;fs::exists(kept,ec)&&attempt<100;attempt++)kept=fs::path(into)/(std::wstring(stamp)+L"-"+std::to_wstring(attempt));
             fs::create_directories(kept,ec);
             if(ec){error=L"The progress already here could not be copied aside, so nothing was replaced.";return 0;}
         }
@@ -121,15 +124,27 @@ int importSaves(const std::wstring& from,const std::vector<std::string>& files,c
         fs::copy_file(existing->path(),kept/existing->path().filename(),fs::copy_options::overwrite_existing,copied);
         if(copied){error=L"The progress already here could not be copied aside, so nothing was replaced.";return 0;}
     }
-    int arrived=0;
+    // Everything that was here is in `kept` now, so what the imported account does not have can
+    // go: a folder holding one account's base game and another's extra chapters is nobody's save.
+    if(!kept.empty()){
+        fs::directory_iterator leftover(into,ec),stop;
+        for(;!ec&&leftover!=stop;leftover.increment(ec)){
+            std::error_code kind;
+            if(!leftover->is_regular_file(kind)||kind)continue;
+            if(validSaveName(leftover->path().filename().string()))fs::remove(leftover->path(),kind);
+        }
+    }
+    int arrived=0,missed=0;
     for(const auto& file:files){
-        if(!validSaveName(file))continue;
+        if(!validSaveName(file)){missed++;continue;}
         const std::wstring wide(file.begin(),file.end());
         std::error_code copied;
         fs::copy_file(fs::path(from)/wide,fs::path(into)/wide,fs::copy_options::overwrite_existing,copied);
-        if(!copied)arrived++;
+        if(copied)missed++;else arrived++;
     }
     if(!arrived)error=L"The save files could not be read:\n"+from;
+    else if(missed)error=L"Only part of that Steam save could be copied: "+std::to_wstring(arrived)+L" of "
+        +std::to_wstring(arrived+missed)+L" files arrived.\n\nWhat was here before is in the dated folder beside them; use it rather than playing on a half-copied save.";
     return arrived;
 }
 void* steamContext(const SaveStorage& files){

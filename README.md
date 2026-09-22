@@ -8,9 +8,11 @@ The preview now uses Recursed's original renderer for terrain, depth-dependent b
 
 ## Download and play
 
-1. Open this repository's **Actions** tab and select a successful **Build Windows patch** run.
-2. Download the `Recursed-Plus-Plus` artifact and unzip the one file inside it.
-3. Run **Recursed-Plus-Plus.exe**.
+1. Open this repository's **Releases** page and take the newest one.
+2. Download **Recursed-Plus-Plus.exe**. `SHA256SUMS.txt` beside it is there to check the download against, if you want to.
+3. Run it.
+
+Builds between releases are on the **Actions** tab, under a successful **Build Windows patch** run: the `Recursed-Plus-Plus` artifact holds the same executable, and GitHub wraps it in a zip of its own.
 
 It looks for your Steam copy of Recursed on its own; if you keep the game somewhere it cannot find, or you have no Steam, choose `Recursed.exe` yourself. It refuses anything that is not the executable fingerprint below, because the mod reads addresses measured against that one build. The controls are printed in the launcher window, so nothing extra is drawn over the game.
 
