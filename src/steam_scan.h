@@ -13,4 +13,14 @@ std::string parseInstallDir(const std::string& manifest);
 std::wstring foldPath(const std::wstring& path);
 // Every Recursed.exe this machine appears to have, best guess first. Never throws.
 std::vector<std::wstring> findRecursed();
+// One Steam account's Recursed progress, as Steam Cloud keeps it on disk. `written` is the
+// newest file time in the folder, so an account that has not been played in years cannot
+// quietly outrank the one the player actually uses.
+struct SteamSave {std::wstring folder,account;unsigned long long written=0;std::vector<std::string> files;};
+// Steam Cloud keeps its own bookkeeping next to the saves. Only a save slot is worth copying,
+// and only under a name the mod is allowed to store.
+bool steamSaveFile(const std::string& name);
+// Every Steam account on this machine with Recursed progress, most recently played first.
+// Never throws; an unreadable or sleeping library is simply not reported.
+std::vector<SteamSave> findSteamSaves();
 }

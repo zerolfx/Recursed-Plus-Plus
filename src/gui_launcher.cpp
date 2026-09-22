@@ -1,11 +1,15 @@
 #include <windows.h>
 #include <commdlg.h>
+#include <objbase.h>
+#include <shellapi.h>
+#include <tlhelp32.h>
 #include <process.h>
 #include <filesystem>
 #include <string>
 #include <vector>
 #include <memory>
 #include "game_launch.h"
+#include "save_store.h"
 #include "steam_scan.h"
 #include "support_folder.h"
 
@@ -14,11 +18,11 @@
 // starts it with the plugin loaded, and carries its own instructions so nothing extra has
 // to be drawn over the game.
 namespace {
-enum : int { kPath=1001, kBrowse, kDetect, kLaunch, kHelp, kStatus, kGameLabel };
-// Scanning and launching both touch disks that can be asleep, missing, or being scanned by
-// antivirus, so neither runs on the thread that has to keep painting.
-enum : UINT { kStage=WM_APP+1, kFound, kLaunched };
-HWND gWindow, gPath, gBrowse, gDetect, gLaunch, gHelp, gStatus;
+enum : int { kPath=1001, kBrowse, kDetect, kLaunch, kImport, kFolder, kHelp, kStatus, kGameLabel };
+// Scanning, launching, and copying saves all touch disks that can be asleep, missing, or being
+// scanned by antivirus, so none of them runs on the thread that has to keep painting.
+enum : UINT { kStage=WM_APP+1, kFound, kLaunched, kSteamSaves, kImported };
+HWND gWindow, gPath, gBrowse, gDetect, gLaunch, gImport, gFolder, gHelp, gStatus;
 HFONT gFont, gMonoFont;
 std::wstring gGame;
 int gDpi=96;
@@ -48,12 +52,20 @@ L"\r\n"
 L"Depth is counted from the room you are standing in: 1 is inside the chest, 0 is\r\n"
 L"where you are, -1 is outside.\r\n"
 L"\r\n"
+L"Your progress\r\n"
+L"\r\n"
+L"  The modded run keeps its own progress, in the save folder this window opens.\r\n"
+L"  It carries over between runs, and it is separate from the progress Steam keeps\r\n"
+L"  for the game you normally play. Import from Steam copies what you have done\r\n"
+L"  there into this build; whatever it replaces is kept in a dated folder beside it.\r\n"
+L"  Close the game before importing, or the running game writes its own progress\r\n"
+L"  back over it.\r\n"
+L"\r\n"
 L"What this does to your game\r\n"
 L"\r\n"
 L"  It never writes to the game's folder and it does not touch your normal saves.\r\n"
-L"  The modded run keeps its own progress under AppData and starts with Steam\r\n"
-L"  switched off, so achievements and cloud saves stay out of it. It does share the\r\n"
-L"  game's own graphics and sound settings file.\r\n"
+L"  Steam is never contacted, so achievements and cloud saves stay out of it. It\r\n"
+L"  does share the game's own graphics and sound settings file.\r\n"
 L"  Only the Steam Windows build this mod was measured against can be started.\r\n"
 L"  Close the game to end the modded session; nothing is left running.\r\n"
 L"\r\n"
@@ -105,10 +117,53 @@ void startThread(unsigned(__stdcall* fn)(void*),void* arg){
     if(auto h=(HANDLE)_beginthreadex(nullptr,0,fn,arg,0,nullptr))CloseHandle(h);
 }
 
+// A running game holds its progress in memory and writes the whole file back when it next
+// saves, so anything copied in underneath it would simply disappear again.
+bool gameRunning(){
+    HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
+    if(snapshot==INVALID_HANDLE_VALUE)return false;
+    PROCESSENTRY32W entry{sizeof entry};bool running=false;
+    for(BOOL more=Process32FirstW(snapshot,&entry);more&&!running;more=Process32NextW(snapshot,&entry))
+        running=_wcsicmp(entry.szExeFile,L"Recursed.exe")==0;
+    CloseHandle(snapshot);
+    return running;
+}
+
+// The modded run keeps its own progress, so the first thing most players want is what they
+// already did in Steam. Both sides store one file per save slot under the same names, so
+// bringing it over is a copy rather than a conversion.
+unsigned __stdcall steamSaveThread(void*){
+    SetThreadErrorMode(SEM_FAILCRITICALERRORS,nullptr);
+    PostMessageW(gWindow,kSteamSaves,0,(LPARAM)new std::vector<peek::SteamSave>(peek::findSteamSaves()));
+    return 0;
+}
+
+unsigned __stdcall importThread(void* raw){
+    std::unique_ptr<peek::SteamSave> save((peek::SteamSave*)raw);
+    std::wstring error;
+    // The game can be started while the question is still on screen, and a copy made under a
+    // running game is a copy it overwrites.
+    if(gameRunning())post(kImported,0,L"Recursed started while this was being confirmed, and it would write its own progress back over the copy. Close the game and import again.");
+    else {
+        const int copied=peek::importSaves(save->folder,save->files,peek::saveFolder(),error);
+        post(kImported,(WPARAM)copied,error);
+    }
+    return 0;
+}
+
+// Which account a save belongs to means little; when it was last played identifies it.
+std::wstring playedOn(unsigned long long written){
+    FILETIME stored{(DWORD)written,(DWORD)(written>>32)},local{};SYSTEMTIME date{};
+    if(!written||!FileTimeToLocalFileTime(&stored,&local)||!FileTimeToSystemTime(&local,&date))return L"an unknown date";
+    wchar_t text[32]{};swprintf_s(text,L"%04u-%02u-%02u",date.wYear,date.wMonth,date.wDay);
+    return text;
+}
+
 void setBusy(bool busy){
     gBusy=busy;
     EnableWindow(gLaunch,!busy&&!gGame.empty()&&peek::supportedGame(gGame));
     EnableWindow(gDetect,!busy);EnableWindow(gBrowse,!busy);
+    EnableWindow(gImport,!busy);EnableWindow(gFolder,!busy);
 }
 
 void browse(){
@@ -139,8 +194,11 @@ void layout(HWND window){
     SetWindowPos(gDetect,nullptr,pad+pathWidth+gap,y,button,row,SWP_NOZORDER);
     SetWindowPos(gBrowse,nullptr,pad+pathWidth+gap+button+gap,y,button,row,SWP_NOZORDER);
     y+=row+scale(12);
-    SetWindowPos(gLaunch,nullptr,pad,y,scale(200),scale(34),SWP_NOZORDER);
-    y+=scale(34)+scale(12);
+    const int tall=scale(34);
+    SetWindowPos(gLaunch,nullptr,pad,y,scale(200),tall,SWP_NOZORDER);
+    SetWindowPos(gImport,nullptr,pad+scale(200)+gap,y,scale(160),tall,SWP_NOZORDER);
+    SetWindowPos(gFolder,nullptr,pad+scale(200)+gap+scale(160)+gap,y,scale(120),tall,SWP_NOZORDER);
+    y+=tall+scale(12);
     const int helpHeight=r.bottom-y-pad-row-gap;
     SetWindowPos(gHelp,nullptr,pad,y,r.right-2*pad,helpHeight>scale(80)?helpHeight:scale(80),SWP_NOZORDER);
     SetWindowPos(gStatus,nullptr,pad,r.bottom-pad-row,r.right-2*pad,row,SWP_NOZORDER);
@@ -158,7 +216,7 @@ void makeFonts(){
 }
 
 void applyFonts(){
-    for(HWND h:{GetDlgItem(gWindow,kGameLabel),gPath,gDetect,gBrowse,gLaunch,gStatus})
+    for(HWND h:{GetDlgItem(gWindow,kGameLabel),gPath,gDetect,gBrowse,gLaunch,gImport,gFolder,gStatus})
         SendMessageW(h,WM_SETFONT,(WPARAM)gFont,TRUE);
     SendMessageW(gHelp,WM_SETFONT,(WPARAM)gMonoFont,TRUE);
 }
@@ -173,6 +231,8 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         gDetect=child(window,L"BUTTON",L"Find it",BS_PUSHBUTTON|WS_TABSTOP,kDetect,gFont);
         gBrowse=child(window,L"BUTTON",L"Choose...",BS_PUSHBUTTON|WS_TABSTOP,kBrowse,gFont);
         gLaunch=child(window,L"BUTTON",L"Play with Recursed++",BS_DEFPUSHBUTTON|WS_TABSTOP,kLaunch,gFont);
+        gImport=child(window,L"BUTTON",L"Import from Steam",BS_PUSHBUTTON|WS_TABSTOP,kImport,gFont);
+        gFolder=child(window,L"BUTTON",L"Save folder",BS_PUSHBUTTON|WS_TABSTOP,kFolder,gFont);
         gHelp=child(window,L"EDIT",kHelpText,WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,kHelp,gMonoFont);
         gStatus=child(window,L"STATIC",L"Looking for Recursed...",SS_LEFT|SS_ENDELLIPSIS,kStatus,gFont);
         EnableWindow(gLaunch,FALSE);
@@ -193,6 +253,28 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         if(w)say(L"Running. Press F8 in the game to turn inspection on.");
         else {say(L"The game did not start.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
         return 0;}
+    case kSteamSaves:{
+        std::unique_ptr<std::vector<peek::SteamSave>> saves((std::vector<peek::SteamSave>*)l);
+        setBusy(false);
+        if(saves->empty()){
+            say(L"No Steam progress found.");
+            MessageBoxW(window,L"No Recursed progress was found in a Steam account on this computer.\n\nSteam keeps it beside the Steam client, under userdata. If yours is on another computer, copy its save files into the save folder this window opens.",L"Recursed++",MB_OK|MB_ICONINFORMATION);
+            return 0;
+        }
+        const auto& save=saves->front();
+        std::wstring question=L"Copy the Recursed progress of Steam account "+save.account+L", last played "+playedOn(save.written)+L", into this build?";
+        if(saves->size()>1)question+=L"\n\nThis computer has "+std::to_wstring(saves->size())+L" Steam accounts with progress. This is the one played most recently.";
+        question+=L"\n\nThe progress this build has now is replaced, and a copy of it is kept in the save folder.";
+        if(MessageBoxW(window,question.c_str(),L"Recursed++",MB_YESNO|MB_ICONQUESTION)!=IDYES){say(L"Nothing was copied.");return 0;}
+        setBusy(true);say(L"Copying the Steam progress...");
+        startThread(importThread,new peek::SteamSave(save));
+        return 0;}
+    case kImported:{
+        std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
+        setBusy(false);
+        if(w)say((L"Imported "+std::to_wstring((int)w)+L" save files from Steam.").c_str());
+        else {say(L"Nothing was copied.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
+        return 0;}
     case WM_SIZE: layout(window); return 0;
     case WM_DPICHANGED:{
         gDpi=HIWORD(w);
@@ -208,6 +290,25 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
         switch(LOWORD(w)){
         case kDetect: if(!gBusy){setBusy(true);say(L"Looking for Recursed...");startThread(scanThread,nullptr);setBusy(false);} return 0;
         case kBrowse: if(!gBusy)browse(); return 0;
+        case kImport:
+            if(gBusy)return 0;
+            if(gameRunning()){
+                MessageBoxW(window,L"Close Recursed first.\n\nA running game writes its whole progress back the next time it saves, so anything copied in now would be lost again.",L"Recursed++",MB_OK|MB_ICONWARNING);
+                return 0;
+            }
+            setBusy(true);say(L"Looking for Steam progress...");
+            startThread(steamSaveThread,nullptr);
+            return 0;
+        case kFolder:{
+            if(gBusy)return 0;
+            const auto folder=peek::saveFolder();
+            if(folder.empty()){say(L"This build has nowhere to keep progress.");return 0;}
+            // Anything at or below 32 is a failure code, and a window that simply never opens
+            // leaves the player with nothing to act on, so the path is put where it can be read.
+            if((INT_PTR)ShellExecuteW(window,L"open",folder.c_str(),nullptr,nullptr,SW_SHOWNORMAL)<=32)
+                MessageBoxW(window,(L"This build keeps your progress here:\n\n"+folder+L"\n\nOpening that folder failed, so copy the path into Explorer yourself.").c_str(),L"Recursed++",MB_OK|MB_ICONINFORMATION);
+            say(folder.c_str());
+            return 0;}
         case kLaunch:
             if(!gBusy&&!gGame.empty()){
                 setBusy(true);
@@ -227,6 +328,8 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
 }
 
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
+    // Opening the save folder goes through the shell, which needs an apartment on this thread.
+    CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
     WNDCLASSEXW cls{sizeof cls};
     cls.lpfnWndProc=proc;cls.hInstance=instance;cls.lpszClassName=L"RecursedPlusPlusLauncher";
     // This project does not define UNICODE, so the stock resource ids come through as narrow

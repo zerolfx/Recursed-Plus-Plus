@@ -20,11 +20,21 @@ The executable uses MSVC 2013, SFML 2, Lua 5.2.4, GLEW, and OpenGL. It exposes n
 | SFML `Window::pollEvent` and keyboard query | Navigation and separate-window input isolation |
 | SFML `Window::setMouseCursorVisible` | Keep the system pointer visible during inspection; restore the game's requested visibility on F8 |
 | CRT `fopen` | Observe mission files; host +0x08 is a tileset string, not the mission name |
-| `SteamAPI_Init`, `SHGetFolderPathA` | Isolate the launched test copy from Steam and normal configuration |
+| Every `steam_api.dll` import, `SHGetFolderPathA` | Answer the game's Steam calls inside the process and isolate its configuration |
 
 Instruction signatures and executable fingerprints constrain these hooks to the supported build.
 
 Window initialization calls `setMouseCursorVisible(false)` at `0x43E121` through IAT slot `0x4775F8`. The mod intercepts this request and preserves its original value. Inspection forces visibility through SFML itself, so its stored cursor state agrees with the display policy. F8 reapplies the saved game value; ordinary frames do not repeatedly change the Windows `ShowCursor` counter. The Win32 preview window keeps its own arrow cursor.
+
+## Progress and Steam storage
+
+`SteamAPI_Init` is called at `0x43B5B0` and its result kept in the byte at `0x48C585`. Every later use of Steam tests that byte first, and the storage calls sit behind it: the save write is inline at `0x4367D1`-`0x436817` and the read is the wrapper at `0x43B750`. Neither has a local fallback, so with Steam absent the game loads nothing and, more to the point, writes nothing. Progress made in an isolated run was lost when the process ended.
+
+The game reaches its interfaces through `SteamInternal_ContextInit(0x48A088)` and reads four entries of what it returns: `+0x04` user, `+0x0C` utilities, `+0x14` user stats, and `+0x24` remote storage. Each dereference is guarded by a null check of the entry it uses, or of the user entry in the case of utilities. Handing the game a table whose only populated entry is remote storage therefore keeps its stats, achievement, and overlay paths unexecuted while its own save and load paths run unchanged.
+
+Remote storage is `STEAMREMOTESTORAGE_INTERFACE_VERSION014`. The game calls `FileWrite` at vtable `+0x00`, `FileRead` at `+0x04`, `FileExists` at `+0x34`, and `GetFileSize` at `+0x3C`, which a C++ class declaring those entries in interface order matches exactly. The names it asks for are the ones Steam Cloud stores in `userdata\<account>\497780\remote`: `save0`, and `save0-dlc` and `save0-dlc2` for the additional content. The contents are lines of `complete <mission>`, `alt <mission>`, `alt2 <mission>`, and `final 1`, written by the serializer at `0x436560`, parsed by the loader at `0x436020`, and written again from `0x4364A0` as the save object is destroyed, which is why closing the game records a save.
+
+Configuration is separate: `0x4519F0` builds `%APPDATA%\recursed.ini` through `SHGetFolderPathA(CSIDL_APPDATA)`, falling back to `./recursed.conf`, and `0x425D90` rewrites the whole file whenever one setting changes. That path is redirected into the private profile folder; progress does not travel with it.
 
 ## Entry and global state
 

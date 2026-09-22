@@ -6,7 +6,10 @@ if (!$Manifest) {
     if (!$latest) { throw 'No backup found.' }
     $Manifest = Join-Path $latest.FullName 'manifest.json'
 }
-$entries = @(Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json)
+# Windows PowerShell hands a JSON array down the pipeline as one object, so wrapping the
+# pipeline itself produces a single nested array and the loop below would verify nothing.
+$parsed = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
+$entries = @($parsed)
 foreach ($entry in $entries) {
     if ((Get-FileHash -LiteralPath $entry.backup -Algorithm SHA256).Hash -ne $entry.sha256) { throw "Backup damaged: $($entry.backup)" }
     if ((Get-FileHash -LiteralPath $entry.source -Algorithm SHA256).Hash -ne $entry.sha256) { throw "Original changed since backup: $($entry.source)" }

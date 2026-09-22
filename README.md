@@ -16,9 +16,17 @@ It looks for your Steam copy of Recursed on its own; if you keep the game somewh
 
 The archive contains the mod, its launcher, the developer scripts, and the authored test levels. It contains no game executable, game assets, or save files.
 
-**What it does to your installation.** Nothing is written into the game's folder, and your normal saves are not touched: the modded process starts with Steam initialization disabled and its configuration redirected to `%LOCALAPPDATA%\Recursed++\profile`, so it keeps its own progress. The one thing it shares with the unmodded game is `recursed.conf`, the graphics and sound settings the game writes next to itself. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
+**What it does to your installation.** Nothing is written into the game's folder, and your normal saves are not touched: the modded process never reaches Steam, keeps its progress in `%LOCALAPPDATA%\Recursed++\saves`, and has its configuration redirected to `%LOCALAPPDATA%\Recursed++\profile`. The one thing it shares with the unmodded game is `recursed.conf`, the graphics and sound settings the game writes next to itself. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
 
 Security software often blocks the mod, because loading code into another process is what a cheat would do. The launcher says so when that happens, and names the files to allow. `%LOCALAPPDATA%\Recursed++\peek.log` records what the mod did.
+
+## Your progress
+
+The modded run keeps its own progress, separate from the copy you normally play, under `%LOCALAPPDATA%\Recursed++\saves`. **Save folder** in the launcher opens it. It carries over between runs.
+
+Recursed stores progress through Steam Cloud and nowhere else, and skips the write entirely when Steam is missing, which is why an isolated run used to start over every time. This build hands the game a private stand-in for that storage instead, writing the same files to that folder. They are the files Steam keeps in `userdata\<account>\497780\remote`, in the same format, so a save can be carried either way by copying it.
+
+**Import from Steam** copies what you have already done in your Steam copy into this build. Close the game first: a running game writes its whole progress back the next time it saves. The progress an import replaces is kept beside it in a dated `replaced-...` folder, and your Steam copy is only read, never written.
 
 ## Preview Lab and the other test levels
 
@@ -108,7 +116,7 @@ Supported `Recursed.exe` SHA-256:
 
 The launcher validates the executable, and the DLL checks instruction signatures and vtables. Other builds are rejected. The original installation is not modified.
 
-Backups live under `backups/<timestamp>/`, with source paths and SHA-256 values in `manifest.json`. The verification script checks both backups and original files. No restore script automatically overwrites progress. Exit the game and Steam before any manual restore. Runtime copies, backups, reverse-engineering dumps, dependencies, and build output are excluded from version control and patch packaging.
+`tools/backup-saves.ps1` copies both your Steam progress and this build's own save folder. Backups live under `backups/<timestamp>/`, with source paths and SHA-256 values in `manifest.json`. The verification script checks both backups and original files. No restore script automatically overwrites progress. Exit the game and Steam before any manual restore. Runtime copies, backups, reverse-engineering dumps, dependencies, and build output are excluded from version control and patch packaging.
 
 ## Implementation
 
@@ -119,6 +127,7 @@ Backups live under `backups/<timestamp>/`, with source paths and SHA-256 values 
 - `src/native_render.cpp`: original renderer hook, private framebuffer, animation clock, and gameplay-field audit.
 - `src/room_art.cpp`, `src/asset_mesh.cpp`, `src/particle_sim.cpp`: resource-based fallback.
 - `src/preview_window.cpp`: the separate Win32 preview window.
+- `src/save_store.cpp`: the file-backed stand-in for Steam Cloud storage, and the Steam import.
 
 The native path borrows read-only level metadata while owning its room stack, scene entities, and rendering resources. It isolates random-number use and room numbering. The normal game draw runs last. A failed gameplay-field audit disables native previews for that process; this bounded audit is not a proof that every engine field is unchanged.
 

@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include "save_store.h"
 #include "steam_scan.h"
 namespace peek { namespace {
 // Valve's text format is quoted tokens; only the quoting rules matter for what we read here.
@@ -40,6 +41,27 @@ std::wstring registryText(HKEY root,const wchar_t* key,const wchar_t* value){
     return text;
 }
 std::wstring widen(const std::string& s){return std::wstring(s.begin(),s.end());}
+std::string narrow(const std::wstring& text){std::string out;for(wchar_t c:text)out+=(c<128?(char)c:'?');return out;}
+// Steam itself, not its libraries: userdata only ever sits next to the client. This launcher
+// is x86, so a read of HKLM\SOFTWARE is already redirected to WOW6432Node.
+std::vector<std::filesystem::path> steamRoots(){
+    std::vector<std::filesystem::path> roots;
+    for(auto root:{registryText(HKEY_CURRENT_USER,L"Software\\Valve\\Steam",L"SteamPath"),
+                   registryText(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Valve\\Steam",L"InstallPath")}){
+        if(root.empty())continue;
+        const auto key=foldPath(root);
+        bool known=false;for(const auto& seen:roots)if(foldPath(seen.wstring())==key)known=true;
+        if(!known)roots.push_back(std::filesystem::path(root));
+    }
+    return roots;
+}
+// Steam records the moment a cloud file last changed; the newest one tells which account was
+// actually being played, which is the only honest way to order them.
+unsigned long long writtenAt(const std::filesystem::path& file){
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if(!GetFileAttributesExW(file.c_str(),GetFileExInfoStandard,&info))return 0;
+    return ((unsigned long long)info.ftLastWriteTime.dwHighDateTime<<32)|info.ftLastWriteTime.dwLowDateTime;
+}
 }
 std::wstring foldPath(const std::wstring& path){
     std::wstring out=path;
@@ -86,11 +108,7 @@ std::vector<std::wstring> findRecursed(){
         for(const auto& seen:libraries)if(foldPath(seen.wstring())==key)return;
         libraries.push_back(p);
     };
-    // This launcher is x86, so a read of HKLM\SOFTWARE is already redirected to WOW6432Node.
-    for(auto root:{registryText(HKEY_CURRENT_USER,L"Software\\Valve\\Steam",L"SteamPath"),
-                   registryText(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Valve\\Steam",L"InstallPath")}){
-        if(root.empty())continue;
-        fs::path steam(root);
+    for(const auto& steam:steamRoots()){
         addLibrary(steam);
         for(const auto& entry:parseLibraryFolders(readFile(steam/"steamapps"/"libraryfolders.vdf")))
             addLibrary(fs::path(widen(entry)));
@@ -102,6 +120,42 @@ std::vector<std::wstring> findRecursed(){
         // A manifest can be missing or stale while the folder is still there, and the reverse.
         consider(apps/"common"/"Recursed"/"Recursed.exe");
     }
+    return found;
+}
+bool steamSaveFile(const std::string& name){
+    // Steam Cloud keeps its own remotecache.vdf beside the saves. Only a numbered slot is the
+    // game's progress, and only a name the mod may store is worth offering to copy.
+    if(!validSaveName(name)||name.size()<5||name.compare(0,4,"save")!=0)return false;
+    return name[4]>='0'&&name[4]<='9';
+}
+std::vector<SteamSave> findSteamSaves(){
+    namespace fs=std::filesystem;
+    std::vector<SteamSave> found;std::error_code ec;
+    for(const auto& steam:steamRoots()){
+        // Steam names each account folder after its id, and only the account that owns Recursed
+        // has an app folder for it.
+        fs::directory_iterator accounts(steam/"userdata",ec),done;
+        for(;!ec&&accounts!=done;accounts.increment(ec)){
+            const auto remote=accounts->path()/"497780"/"remote";
+            std::error_code inner;
+            fs::directory_iterator files(remote,inner);
+            SteamSave save{remote.wstring(),accounts->path().filename().wstring(),0,{}};
+            for(;!inner&&files!=done&&save.files.size()<32;files.increment(inner)){
+                std::error_code kind;
+                if(!files->is_regular_file(kind)||kind)continue;
+                const auto name=narrow(files->path().filename().wstring());
+                if(!steamSaveFile(name))continue;
+                save.files.push_back(name);
+                const auto written=writtenAt(files->path());
+                if(written>save.written)save.written=written;
+            }
+            if(!save.files.empty())found.push_back(save);
+        }
+        ec.clear();
+    }
+    // Most recently played first: an account left behind years ago must not outrank the one in
+    // use, because the import replaces the mod's progress with whichever this reports first.
+    std::sort(found.begin(),found.end(),[](const SteamSave& a,const SteamSave& b){return a.written>b.written;});
     return found;
 }
 }

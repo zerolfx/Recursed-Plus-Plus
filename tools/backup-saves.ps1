@@ -20,6 +20,10 @@ foreach ($folder in @([Environment]::GetFolderPath('ApplicationData'),[Environme
         }
     }
 }
+# The modded run keeps its own progress, which is the copy an import replaces and the one a
+# failed session would lose, so it belongs in the same backup as the Steam one.
+$modSaves = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Recursed++\saves'
+if (Test-Path -LiteralPath $modSaves) { $sources += @{ Source = $modSaves; Label = 'recursed-plus-plus-saves' } }
 $manifest = @()
 foreach ($entry in $sources) {
     $target = Join-Path $backupRoot $entry.Label

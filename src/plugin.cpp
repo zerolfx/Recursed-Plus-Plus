@@ -18,6 +18,7 @@
 #include "preview_window.h"
 #include "native_render.h"
 #include "support_folder.h"
+#include "save_store.h"
 
 static HMODULE selfModule;
 static uintptr_t gameBase;
@@ -172,7 +173,35 @@ static bool __fastcall pollEventHook(void* window,void*,void* event){
     return result;
 }
 static FolderFn originalFolder;
-static bool __cdecl offlineSteam(){log("Steam disabled for isolated testing");return false;}
+// The game keeps its progress in Steam Cloud and nowhere else: without Steam it skips the
+// write instead of falling back, so an isolated run used to lose everything it had done the
+// moment it closed. Steam stays unreachable - every one of its entry points is answered here -
+// but the game is handed a context whose single entry is storage backed by this build's own
+// save folder, so its own save and load paths run exactly as they normally do.
+static peek::SaveStorage saveFiles;
+static void* saveContext;
+static void noteSave(const char* what,const char* file,int bytes){log("Progress %s: %s (%d bytes)",what,file,bytes);}
+static bool __cdecl privateSteam(){return true;}
+static void* __cdecl privateSteamContext(void*){return saveContext;}
+static void* __cdecl refusedSteamInterface(const char*){return nullptr;}
+static void __cdecl ignoredSteamWork(){}
+static void __cdecl ignoredSteamCallback(void*,int){}
+static void __cdecl ignoredSteamCallbackRemoval(void*){}
+static int __cdecl noSteamHandle(){return 0;}
+static bool installSteamStand(){
+    saveFiles.folder=peek::saveFolder();saveFiles.note=noteSave;
+    if(saveFiles.folder.empty()){log("No save folder; refusing to start");return false;}
+    saveContext=peek::steamContext(saveFiles);
+    return hookImport("steam_api.dll","SteamAPI_Init",(void*)privateSteam,nullptr)
+        &&hookImport("steam_api.dll","SteamInternal_ContextInit",(void*)privateSteamContext,nullptr)
+        &&hookImport("steam_api.dll","SteamInternal_CreateInterface",(void*)refusedSteamInterface,nullptr)
+        &&hookImport("steam_api.dll","SteamAPI_RunCallbacks",(void*)ignoredSteamWork,nullptr)
+        &&hookImport("steam_api.dll","SteamAPI_Shutdown",(void*)ignoredSteamWork,nullptr)
+        &&hookImport("steam_api.dll","SteamAPI_RegisterCallback",(void*)ignoredSteamCallback,nullptr)
+        &&hookImport("steam_api.dll","SteamAPI_UnregisterCallback",(void*)ignoredSteamCallbackRemoval,nullptr)
+        &&hookImport("steam_api.dll","SteamAPI_GetHSteamPipe",(void*)noSteamHandle,nullptr)
+        &&hookImport("steam_api.dll","SteamAPI_GetHSteamUser",(void*)noSteamHandle,nullptr);
+}
 static HRESULT WINAPI isolatedFolder(HWND hwnd,int folder,HANDLE token,DWORD flags,LPSTR out){
     if((folder&0xff)==CSIDL_APPDATA){strcpy_s(out,MAX_PATH,profilePath);log("Redirected APPDATA");return S_OK;}
     return originalFolder(hwnd,folder,token,flags,out);
@@ -367,7 +396,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     const unsigned char expected[]={0x55,0x8b,0xec,0x83,0xec,0x20};
     if(memcmp(address(0x440A20),expected,sizeof expected)){log("Build signature mismatch");return 0;}
     if(!hookImport("SHELL32.dll","SHGetFolderPathA",(void*)isolatedFolder,(void**)&originalFolder)){log("Profile hook failed; refusing to start");return 0;}
-    if(!hookImport("steam_api.dll","SteamAPI_Init",(void*)offlineSteam,nullptr)){log("Steam isolation failed; refusing to start");return 0;}
+    if(!installSteamStand()){log("Steam isolation failed; refusing to start");return 0;}
     if(!hookImport("MSVCR120.dll","fopen",(void*)fopenHook,(void**)&originalFopen)){log("Lua file hook missing");return 0;}
     if(!hookImport("sfml-window-2.dll","?setMouseCursorVisible@Window@sf@@QAEX_N@Z",(void*)cursorVisibilityHook,(void**)&originalCursorVisibility)){log("Cursor visibility hook missing");return 0;}
     if(!hookImport("sfml-window-2.dll","?pollEvent@Window@sf@@QAE_NAAVEvent@2@@Z",(void*)pollEventHook,(void**)&originalPollEvent))return 0;
@@ -380,6 +409,6 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(!patchPointer((void**)address(0x47ad80),(void*)chestTransformHook,(void**)&originalChestTransform)||!hookRoomBuilder()){log("Game hooks failed");return 0;}
     if(!peek::installNativeRender(gameBase)){log("Native renderer signature mismatch");return 0;}
     if(!hookImport("sfml-window-2.dll","?display@Window@sf@@QAEXXZ",(void*)displayHook,(void**)&originalDisplay)){log("Display import missing");return 0;}
-    log("Initialized base=%p profile=%s",(void*)gameBase,profilePath);return 1;
+    log("Initialized base=%p profile=%s saves=%ls",(void*)gameBase,profilePath,saveFiles.folder.c_str());return 1;
 }
 BOOL WINAPI DllMain(HINSTANCE module,DWORD reason,LPVOID){if(reason==DLL_PROCESS_ATTACH){selfModule=module;DisableThreadLibraryCalls(module);}return TRUE;}

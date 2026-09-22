@@ -1,6 +1,6 @@
 # Validation
 
-Validated on 2026-09-22 using the supported Windows x86 executable. Interactive testing runs only the workspace runtime copy with Steam initialization disabled and configuration isolated.
+Validated on 2026-09-22 using the supported Windows x86 executable. Interactive testing runs only the workspace runtime copy, with Steam unreachable, progress kept in this build's own save folder, and configuration isolated.
 
 ## CI tests without game files
 
@@ -88,9 +88,21 @@ Not observed on screen: a jar or a froth, because neither has a Lua spawn path a
 
 The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook now overrides that request while inspection is enabled and restores it when F8 disables inspection. F8 off/on and switching between game and popup were tested interactively. Test-mode logs read `GetCursorInfo` after the visibility change: `systemVisible=0` when inspection is disabled and `systemVisible=1` when enabled. This distinguishes the actual system cursor from the Computer Use pointer marker. Cursor diagnostics are emitted only with `RECURSED_PEEK_TEST_INPUT=1`.
 
+## Progress storage
+
+The game reads and writes its progress through Steam Cloud only, and its own guard skips the write when Steam is missing, so before this increment an isolated run kept nothing. Checked on 2026-09-22 against the runtime copy:
+
+- With `save0`, `save0-dlc`, and `save0-dlc2` present in the save folder, the run log records `Progress loaded: save0 (1098 bytes)` as the game leaves its title screen.
+- Leaving the menu and closing the game each record `Progress saved: save0 (1098 bytes)`, and the rewritten file is byte-identical to the Steam original it came from.
+- The launcher's **Import from Steam** reported three files copied from the Steam account found in `userdata`, and the progress it replaced was kept in `replaced-20260922-200627`.
+- `build/ci_test.exe` calls the same interface entries the game calls, at the same vtable offsets, and covers the write/read round trip, a name that tries to leave the save folder, which Steam Cloud files are worth importing, and the replaced-progress copy.
+- The game's other Steam entry points are answered in the process and never reach Steam: the context it is given carries storage alone, and its user, utility, and stats entries stay null, which its own null checks already cover, so no achievement or stat call is made.
+
+Opening the save folder from the launcher uses the shell. On the test machine Explorer refused newly created folders while it was in a stale state, including from a hand-typed path, which is an Explorer condition rather than a launcher one; the launcher reports the path either way.
+
 ## Save isolation
 
-The local backup verifier confirmed four backed-up files and unchanged original hashes after native preview testing. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.
+The local backup verifier confirmed eleven backed-up files and unchanged original hashes, covering both the Steam progress and this build's own save folder. The verifier had been reading a multi-entry manifest as one entry, which made it fail on any backup of more than one file; it now walks the entries. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.
 
 ## Not covered
 

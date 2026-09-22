@@ -1,11 +1,36 @@
 #include "../src/snapshot.h"
 #include "../src/runtime_state.h"
 #include "../src/particle_sim.h"
+#include "../src/save_store.h"
 #include "../src/steam_scan.h"
 #include <cassert>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include "live_state_fixture.h"
+// The game never sees the storage object; it calls entries of the interface table Steam would
+// have handed it. Declaring the same entries in the same order here tests the offsets the game
+// actually uses, not just the code behind them.
+struct SteamRemoteStorage {
+ virtual bool FileWrite(const char*,const void*,int)=0;
+ virtual int FileRead(const char*,void*,int)=0;
+ virtual unsigned long long FileWriteAsync(const char*,const void*,unsigned)=0;
+ virtual unsigned long long FileReadAsync(const char*,unsigned,unsigned)=0;
+ virtual bool FileReadAsyncComplete(unsigned long long,void*,unsigned)=0;
+ virtual bool FileForget(const char*)=0;
+ virtual bool FileDelete(const char*)=0;
+ virtual unsigned long long FileShare(const char*)=0;
+ virtual bool SetSyncPlatforms(const char*,int)=0;
+ virtual unsigned long long FileWriteStreamOpen(const char*)=0;
+ virtual bool FileWriteStreamWriteChunk(unsigned long long,const void*,int)=0;
+ virtual bool FileWriteStreamClose(unsigned long long)=0;
+ virtual bool FileWriteStreamCancel(unsigned long long)=0;
+ virtual bool FileExists(const char*)=0;
+ virtual bool FilePersisted(const char*)=0;
+ virtual int GetFileSize(const char*)=0;
+ virtual long long GetFileTimestamp(const char*)=0;
+};
 int main(){
  testLiveRoomRead();
  const char* root="tests/fixtures";
@@ -45,5 +70,37 @@ int main(){
  // fold to the same key or the launcher offers to start one copy twice.
  assert(peek::foldPath(L"c:/program files (x86)/steam")==peek::foldPath(L"C:\\Program Files (x86)\\Steam\\"));
  assert(peek::foldPath(L"D:\\Games")!=peek::foldPath(L"E:\\Games"));
- std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing\n";
+ // The game keeps its progress in Steam Cloud and nowhere else, so an isolated run only keeps
+ // what this storage keeps for it: what one run writes, the next one has to read back.
+ namespace fs=std::filesystem;
+ const auto folder=fs::temp_directory_path()/"recursed-peek-saves";
+ fs::remove_all(folder);
+ peek::SaveStorage store{folder.wstring()};
+ auto* remote=(SteamRemoteStorage*)((void**)peek::steamContext(store))[9];
+ const std::string progress="complete missions/basement1\ncomplete missions/basic5\n";
+ assert(!remote->FileExists("save0")&&remote->GetFileSize("save0")==0);
+ assert(remote->FileWrite("save0",progress.data(),(int)progress.size()));
+ assert(remote->FileExists("save0")&&remote->GetFileSize("save0")==(int)progress.size());
+ std::string reread(progress.size(),'\0');
+ assert(remote->FileRead("save0",&reread[0],(int)reread.size())==(int)progress.size()&&reread==progress);
+ // The game names its own slots. Anything else would write outside the save folder.
+ assert(!remote->FileWrite("../escape",progress.data(),4)&&!remote->FileExists("../escape"));
+ assert(peek::validSaveName("save0-dlc2")&&!peek::validSaveName("..")&&!peek::validSaveName("a/b")&&!peek::validSaveName("c:\\x"));
+ // Steam keeps its own bookkeeping beside the saves; only the slots are worth importing.
+ assert(peek::steamSaveFile("save0")&&peek::steamSaveFile("save0-dlc")&&!peek::steamSaveFile("remotecache.vdf")&&!peek::steamSaveFile("save"));
+ // An import replaces progress, so whatever it replaced has to stay recoverable.
+ const auto cloud=folder/"cloud";
+ fs::create_directories(cloud);
+ {std::ofstream out(cloud/"save0",std::ios::binary);out<<"complete missions/wood1\n";}
+ std::wstring error;
+ assert(peek::importSaves(cloud.wstring(),{"save0"},folder.wstring(),error)==1&&error.empty());
+ assert(remote->GetFileSize("save0")==24);
+ int replaced=0;
+ for(const auto& entry:fs::directory_iterator(folder))
+  if(entry.is_directory()&&entry.path().filename().wstring().rfind(L"replaced-",0)==0)
+   replaced+=fs::exists(entry.path()/"save0")?1:0;
+ assert(replaced==1);
+ assert(!peek::importSaves(cloud.wstring(),{},folder.wstring(),error)&&!error.empty());
+ fs::remove_all(folder);
+ std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import\n";
 }
