@@ -34,6 +34,7 @@ function props(wet)
   Spawn("generic",9,12.5)
   Spawn("cauldron",12,12.5,"keyroom")
   Spawn("bird",16,4.5,{"chest-pool"})
+  Global("crux",16,12.5)
 end
 function keyroom(wet)
   shell()

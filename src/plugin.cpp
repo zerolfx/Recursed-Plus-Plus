@@ -270,7 +270,7 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool open,bool close)
     const auto step=previewPath.back();bool live=step.ancestors>=0;
     previewWet=step.wet;
     const auto key=missionPath+"|"+step.room+"|"+(live?"live:"+std::to_string(step.ancestors):previewWet?"wet":"dry");
-    if(key!=previewKey){templatePreview=peek::loadSnapshot(gameRoot,missionPath,previewPath.back().room,previewWet);previewKey=key;log("Preview %s objects=%zu error=%s",key.c_str(),templatePreview.objects.size(),templatePreview.error.c_str());}
+    if(key!=previewKey){templatePreview=peek::loadSnapshot(gameRoot,missionPath,previewPath.back().room,previewWet);previewKey=key;log("Preview %s objects=%zu silenced=%u error=%s",key.c_str(),templatePreview.objects.size(),peek::nativeSilencedSounds(),templatePreview.error.c_str());}
     const auto source=peek::readRoomReference(roomHost,active?active->owner:0,0);
     auto globals=peek::readGlobals(roomHost,active?active->owner:0,previewPath.back().room);
     if(live)preview=peek::readRoomSnapshot(roomHost,active?active->owner:0,step.ancestors,templatePreview);

@@ -16,10 +16,12 @@ static std::map<std::string,std::unique_ptr<Bitmap>> images;
 static std::map<std::string,Mesh> meshes;
 static Bitmap* bitmap(const std::string& path){auto i=images.find(path);if(i!=images.end())return i->second.get();std::wstring wide(path.begin(),path.end());auto b=std::make_unique<Bitmap>(wide.c_str());if(b->GetLastStatus()!=Ok||b->GetWidth()>4096||b->GetHeight()>4096)b.reset();auto* p=b.get();images.emplace(path,std::move(b));return p;}
 static Color rgb(Vec3 c,float shade=1){auto channel=[&](float n){return (BYTE)std::clamp(n*shade*255.f,0.f,255.f);};return Color(255,channel(c.x),channel(c.y),channel(c.z));}
-static bool drawLock(Graphics& g,const std::string& root,const Object& o,float cell){
- auto* sprite=bitmap(root+"/data/sprites/lock.png");if(!sprite)return false;
- // sprites/lock.lua: five horizontal frames; sequence ends on closed frame 0.
- float width=sprite->GetWidth()/5.f,height=(float)sprite->GetHeight();if(width<1||height<1)return false;
+static bool drawSprite(Graphics& g,const std::string& root,const Object& o,float cell){
+ // sprites/lock.lua has five horizontal frames and ends on closed frame 0; sprites/crux.lua
+ // has six. Both draw their first frame here, because the fallback has no sprite clock.
+ const int frames=o.kind=="crux"?6:5;
+ auto* sprite=bitmap(root+"/data/sprites/"+o.kind+".png");if(!sprite)return false;
+ float width=sprite->GetWidth()/(float)frames,height=(float)sprite->GetHeight();if(width<1||height<1)return false;
  ImageAttributes attrs;attrs.SetColorKey(Color(255,255,0,255),Color(255,255,0,255));
  g.DrawImage(sprite,RectF(o.x*cell-width*cell/32,o.y*cell-height*cell/32,width*cell/16,height*cell/16),0,0,width,height,UnitPixel,&attrs);return true;
 }
@@ -82,7 +84,7 @@ const RoomArt& renderRoomArt(const std::string& root,const Snapshot& s,double se
   if(t.kind){SolidBrush brush(t.kind==3?Color(180,45,140,200):t.kind==4?Color(180,130,190,50):Color(255,120,120,155));g.FillRectangle(&brush,x*cell,y*cell,cell,t.kind==2?cell*.15f:cell);}}
  g.SetSmoothingMode(SmoothingModeNone);int fallback=0;
  for(const auto& o:s.objects){if(o.kind=="bird")continue;float x=o.x*cell,y=o.y*cell;
-  if(!drawMesh(g,out,root,o,cell)&&!(o.kind=="lock"&&drawLock(g,root,o,cell))){fallback++;SolidBrush brush(Color(255,220,210,220));if(o.kind=="player"||o.kind=="yield"){SolidBrush door(Color(130,255,95,210));g.FillEllipse(&door,x-cell*.38f,y-cell*.65f,cell*.76f,cell*1.1f);Pen rim(Color(255,255,145,224),2);g.DrawEllipse(&rim,x-cell*.38f,y-cell*.65f,cell*.76f,cell*1.1f);}else {g.FillEllipse(&brush,x-cell*.2f,y-cell*.2f,cell*.4f,cell*.4f);}}
+  if(!drawMesh(g,out,root,o,cell)&&!((o.kind=="lock"||o.kind=="crux")&&drawSprite(g,root,o,cell))){fallback++;SolidBrush brush(Color(255,220,210,220));if(o.kind=="player"||o.kind=="yield"){SolidBrush door(Color(130,255,95,210));g.FillEllipse(&door,x-cell*.38f,y-cell*.65f,cell*.76f,cell*1.1f);Pen rim(Color(255,255,145,224),2);g.DrawEllipse(&rim,x-cell*.38f,y-cell*.65f,cell*.76f,cell*1.1f);}else {g.FillEllipse(&brush,x-cell*.2f,y-cell*.2f,cell*.4f,cell*.4f);}}
   if(o.global){Pen global(Color(255,75,246,127),2);g.DrawRectangle(&global,x-cell*.62f,y-cell*.66f,cell*1.24f,cell*1.26f);}
  }
  if(fallback)out.note+="; "+std::to_string(fallback)+" schematic objects";

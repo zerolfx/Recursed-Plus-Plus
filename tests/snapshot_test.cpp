@@ -23,11 +23,11 @@ int main(){
  assert(a.tiles[9*20+10].definition=="brick_u"&&b.tiles[11*20+9].definition=="watersurface");
  // Every kind the native scene learned after chests and keys, in one authored room.
  auto props=peek::loadSnapshot("runtime","missions/peek-lab","props",false);
- assert(props.error.empty()&&props.objects.size()==5);
- bool fan=false,generic=false,cauldron=false,bird=false;
+ assert(props.error.empty()&&props.objects.size()==6&&props.hasGlobals);
+ bool fan=false,generic=false,cauldron=false,bird=false,crux=false;
  for(auto& o:props.objects){fan|=o.kind=="fan";generic|=o.kind=="generic";
-   cauldron|=o.kind=="cauldron"&&o.target=="keyroom";bird|=o.kind=="bird";}
- assert(fan&&generic&&cauldron&&bird);
+   cauldron|=o.kind=="cauldron"&&o.target=="keyroom";bird|=o.kind=="bird";crux|=o.kind=="crux"&&o.global;}
+ assert(fan&&generic&&cauldron&&bird&&crux);
  auto portals=peek::loadSnapshot("runtime","missions/peek-lab","portals",false);
  assert(portals.error.empty()&&portals.objects.size()==3);
  assert(portals.objects[0].kind=="player"&&portals.objects[0].x==3&&portals.objects[0].y==12);

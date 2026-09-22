@@ -11,4 +11,6 @@ void requestNativeDestination(uintptr_t host,const Snapshot& snapshot,const std:
 const RoomArt* nativeDestinationArt(const std::string& key);
 const Snapshot* nativeDestinationSnapshot(const std::string& key);
 bool nativeRenderWork();
+// Sound starts refused while building, drawing or tearing down a preview scene.
+uint32_t nativeSilencedSounds();
 }

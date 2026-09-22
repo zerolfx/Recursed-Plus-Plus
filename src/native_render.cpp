@@ -16,6 +16,11 @@ static int width=0,height=0;
 static uint64_t tick=0;
 static bool destination=false;
 static thread_local bool working=false;
+// Preview work must leave no trace in the live game. A leaked flag used to be invisible
+// because it only kept the private RNG running; now that it also silences the sound layer,
+// an escaped exception would mute the whole game until restart, so the window is scoped.
+struct Working {Working(){working=true;}~Working(){working=false;}};
+static uint32_t silenced=0;
 static uintptr_t sourceHost=0;
 static Snapshot scene;
 static Snapshot renderedSnapshot;
@@ -23,6 +28,17 @@ static std::string sceneKey,renderedKey;
 static int sceneDepth=1;
 static uint64_t lastSceneTick=0;
 using Rand=int(__cdecl*)();static Rand originalRand=nullptr;
+// 0x439070 starts a sound: the name arrives in ecx as a game string the caller owns, and it
+// returns a handle from a counter that starts at 1, so 0 and -1 are unassignable. The game
+// already treats a negative handle as "nothing playing" and skips the matching stop. Every
+// one of its 68 call sites goes through here, so refusing during preview work is what makes
+// a preview silent, rather than relying on each entity happening not to play anything.
+using PlaySound=int(__thiscall*)(const void*);
+static PlaySound originalPlaySound=nullptr;
+static int __fastcall playSoundHook(const void* name,void*){
+ if(!working)return originalPlaySound(name);
+ silenced++;return -1;
+}
 static uint32_t privateRandom=0x1234abcd;
 static int __cdecl isolatedRand(){if(!working)return originalRand();privateRandom=privateRandom*214013u+2531011u;return (privateRandom>>16)&0x7fff;}
 #define FN(ret,name,...) using name##Fn=ret(APIENTRY*)(__VA_ARGS__);static name##Fn name
@@ -69,16 +85,16 @@ static uint64_t coreHash(void* renderer){
  for(auto p=eb;p<ee;p+=4){auto entity=*(uintptr_t*)p;add((void*)entity,0x48);}return hash;
 }
 static void __fastcall renderHook(void* renderer,void*,void* context){
- if(!requested){working=true;clearNativeScene();working=false;}
+ if(!requested){Working scope;clearNativeScene();}
  if(requested&&GetTickCount64()/33!=tick){
   tick=GetTickCount64()/33;int w=*(int*)context,h=*((int*)context+1);
   if(w>0&&h>0&&w<=2048&&h<=2048&&target(w,h)){
    // Context has two dimensions, view values, FBO handles, time, and a 4x4 matrix.
    alignas(16) std::array<unsigned char,0x74> copy{};memcpy(copy.data(),context,copy.size());*(GLuint*)(copy.data()+0x20)=fbo;
-   auto before=coreHash(renderer);working=true;bool drawable=true;void* selected=renderer;
+   auto before=coreHash(renderer);uint64_t after=0;bool drawable=true;{Working scope;void* selected=renderer;
    if(destination){drawable=prepareNativeScene(sourceHost,scene,sceneKey,sceneDepth);if(drawable){selected=nativeSceneRenderer();auto now=GetTickCount64();float dt=lastSceneTick?std::min(.1f,(now-lastSceneTick)/1000.f):0.f;lastSceneTick=now;*(float*)(copy.data()+0x24)=advanceNativeScene(dt);*(float*)(copy.data()+0x28)=dt;}}
    else *(float*)(copy.data()+0x28)=0; // Do not advance the live particle simulation twice.
-   if(drawable)original(selected,copy.data());working=false;auto after=coreHash(renderer);
+   if(drawable)original(selected,copy.data());}after=coreHash(renderer);
    if(before!=after||!before){disabled=true;requested=false;art.pixels.clear();status="Native preview disabled: gameplay audit failed";}
    else if(!drawable){art.pixels.clear();status=nativeSceneError();}
    else if(before&&before==after){readback();renderedKey=sceneKey;status="Native renderer: live room stack and entity fields unchanged";if(destination){renderedSnapshot=nativeSceneSnapshot();art.note=scene.live?"Original engine / captured outer room / physics frozen":"Original engine / native spawn settling / physics frozen after placement";}}
@@ -90,6 +106,12 @@ static void __fastcall renderHook(void* renderer,void*,void* context){
 }
 bool installNativeRender(uintptr_t base){
  initNativeScene(base);auto* randSlot=(void**)(base+0x77378);auto expectedRand=GetProcAddress(GetModuleHandleW(L"MSVCR120.dll"),"rand");if(*randSlot!=(void*)expectedRand)return false;DWORD randProtect;if(!VirtualProtect(randSlot,4,PAGE_READWRITE,&randProtect))return false;originalRand=(Rand)*randSlot;*randSlot=(void*)isolatedRand;DWORD randUnused;VirtualProtect(randSlot,4,randProtect,&randUnused);
+ // 0x439070's prologue is push ebp / mov ebp,esp / push -1: five bytes, three whole
+ // instructions, so this site takes a five-byte jump and no padding NOP. Using the
+ // six-byte shape below would split the following push and corrupt the function.
+ auto* s=(unsigned char*)(base+0x39070);const unsigned char playSignature[]={0x55,0x8b,0xec,0x6a,0xff};if(memcmp(s,playSignature,5))return false;
+ auto* st=(unsigned char*)VirtualAlloc(nullptr,10,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);if(!st)return false;memcpy(st,s,5);st[5]=0xe9;*(int32_t*)(st+6)=(int32_t)((s+5)-(st+10));DWORD soundOld;if(!VirtualProtect(st,10,PAGE_EXECUTE_READ,&soundOld))return false;originalPlaySound=(PlaySound)st;
+ if(!VirtualProtect(s,5,PAGE_EXECUTE_READWRITE,&soundOld))return false;s[0]=0xe9;*(int32_t*)(s+1)=(int32_t)((unsigned char*)playSoundHook-(s+5));DWORD soundUnused;VirtualProtect(s,5,soundOld,&soundUnused);FlushInstructionCache(GetCurrentProcess(),s,5);
  auto* p=(unsigned char*)(base+0x338a0);const unsigned char signature[]={0x55,0x8b,0xec,0x83,0xec,0x20};if(memcmp(p,signature,6))return false;
  auto* t=(unsigned char*)VirtualAlloc(nullptr,11,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);if(!t)return false;memcpy(t,p,6);t[6]=0xe9;*(int32_t*)(t+7)=(int32_t)((p+6)-(t+11));DWORD old;if(!VirtualProtect(t,11,PAGE_EXECUTE_READ,&old))return false;original=(Render)t;
  if(!VirtualProtect(p,6,PAGE_EXECUTE_READWRITE,&old))return false;p[0]=0xe9;*(int32_t*)(p+1)=(int32_t)((unsigned char*)renderHook-(p+5));p[5]=0x90;DWORD unused;VirtualProtect(p,6,old,&unused);FlushInstructionCache(GetCurrentProcess(),p,6);return true;
@@ -102,4 +124,5 @@ void requestNativeDestination(uintptr_t host,const Snapshot& snapshot,const std:
 const RoomArt* nativeDestinationArt(const std::string& key){return destination&&renderedKey==key&&!art.pixels.empty()?&art:nullptr;}
 const Snapshot* nativeDestinationSnapshot(const std::string& key){return nativeDestinationArt(key)?&renderedSnapshot:nullptr;}
 bool nativeRenderWork(){return working;}
+uint32_t nativeSilencedSounds(){return silenced;}
 }
