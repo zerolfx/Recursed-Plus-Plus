@@ -72,14 +72,24 @@ Room constructor is `0x440120`, destructor `0x41BBD0`. Tile entries are 12 bytes
 | Key | `0x416210` | 0x50 |
 | Lock | `0x416790` | 0x50 |
 | Record | `0x418120` | 0x70 |
+| Fan | `0x4138B0` | 0x5C |
+| Generic | `0x414780` | 0x60 |
+| Cauldron | `0x410650` | 0x78 |
+| Bird | `0x40EDE0` | 0x6C |
+| Jar | `0x415770` | 0x74 |
+| Froth | `0x4144D0` | 0x50 |
 | Crystal variants | `0x412580` | 0x5C |
 | Door / return portal | `0x412E00` | 0x5C |
 
-The record constructor takes the voice-clip path as a `const char*` and stores it at +0x4C, where a chest stores its destination room; live reads use that offset for both. Construction only builds the `assets/record` model and copies that string, so no audio subsystem is touched.
+The record constructor takes the voice-clip path as a `const char*` and stores it at +0x4C, where a chest stores its destination room; live reads use that offset for both. Construction only builds the `assets/record` model and copies that string, so no audio subsystem is touched. Cauldrons and jars also keep a room name at +0x4C, so live reads cover four kinds.
+
+Argument shapes differ enough that the construction switch dispatches on the kind, never on the size: Exit, Crystal and Fan are all 0x5C. A cauldron takes its destination as a game string by pointer, like a chest, and the caller owns it. A jar takes the same string **by value** and frees it itself before its `ret 0x18`, so that path must not destroy the copy it passes. Generic and Bird store an entry-context pointer at +0x4C and +0x48 without dereferencing it, exactly as Exit does; Bird's second argument is a `vector<string>` of gameplay hints copied in by `0x40F910`, which sizes the copy from `last - first`, so three null words are a valid empty vector.
+
+One kind is rejected on purpose: `Crux::attach` unconditionally starts the looping `sounds/core-idle` through `0x439070`, and a preview stays silent. Two are handled with a known limit rather than rejected. `Bird::draw` returns immediately while +0x4C is null, and only the gameplay update builds that sprite, by matching the bird's hints against the room's entity list, so a bird is constructed and placed but not drawn. A fizzer is skipped when reading a live room: it is the invisible controller the engine attaches to acid, it has no constructor of its own, and its draw transform is a bare `ret`. An unnamed jar would auto-name itself and advance the game's jar counter at `0x48A050`, so scene construction saves and restores that counter as it already does the room serial.
 
 Old MSVC strings use the game's constructors/destructors; all native allocations use the matching game CRT. The preview owns its stack and entities, borrows immutable level metadata, and never destroys the borrowed host. Room destruction detaches entities and destroys containers; entity destruction is a separate ownership step.
 
-Only key spin and draw transforms advance, alongside native renderer effects. A record needs no equivalent: its rotation is gated on +0x48, which its constructor clears, so a resting record does not spin in the original game either. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. The `player` script declaration creates only a Door in the preview; `yield` creates its green variant. A private empty entry context is sufficient for the audited constructor, attach, draw, and destructor paths. Gameplay portal update/interaction and Player construction are never invoked. Unsupported entity kinds use the resource-rendering fallback.
+Only original spin rates and draw transforms advance, alongside native renderer effects. Key adds `dt * 3`, Generic `dt * 2` and Crystal `dt * 0.6` unconditionally in their own updates, before their first branch, and Fan integrates the rate at +0x54, which its constructor sets to the same 10.0 its ramp clamps to. The preview advances each registered angle at its own rate. Record, cauldron and jar reach the shared body step `0x415490`, whose rotation is gated on +0x48; their constructors clear it, so a resting one does not spin in the original game either. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. The `player` script declaration creates only a Door in the preview; `yield` creates its green variant. A private empty entry context is sufficient for the audited constructor, attach, draw, and destructor paths. Gameplay portal update/interaction and Player construction are never invoked. Unsupported entity kinds use the resource-rendering fallback.
 
 ## Validation boundary
 

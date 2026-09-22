@@ -22,7 +22,7 @@ GitHub Actions compiles the x86 DLL, launcher, diagnostic utility, and all test 
 
 `build/snapshot_test.exe` loads 100/100 stock and additional-content starting rooms. It also checks test-room and stock-room object contents, positions and targets, dry/wet branches, global-object merging, meshes, particle definitions, and native tile names.
 
-`build/render_test.exe` checks fallback animation, 30 Hz cache reuse, unchanged terrain pixels and input snapshots, and that a record reaches its `ring` mesh entry instead of the schematic fallback, then exports 48 frames under `build/effects-frames`. The tested frames differed in 8,051 pixels. These are fallback-renderer tests, not native-engine output tests.
+`build/render_test.exe` checks fallback animation, 30 Hz cache reuse, unchanged terrain pixels and input snapshots, and that a record, fan, generic and cauldron each reach their own asset and mesh entry instead of the schematic fallback, then exports 48 frames under `build/effects-frames`. The tested frames differed in 8,051 pixels. These are fallback-renderer tests, not native-engine output tests.
 
 Passing script extraction does not imply exact puzzle-state simulation or support for every native entity.
 
@@ -63,6 +63,17 @@ Computer Use checked the isolated build on 2026-09-22 after adding native Record
 - Preview Lab keyroom: the record settles onto the same platform as the key instead of hanging in free air.
 - The game and its preview windows were closed at the end; no Recursed process remained.
 
+## Remaining entity kinds increment
+
+Computer Use checked the isolated build on 2026-09-22 after adding fan, generic, cauldron, bird, jar and froth:
+
+- The authored `props` room previews natively: the return flame is native fire, the fan turns, the oobleck blob and the cauldron draw their own models, and the run log records `objects=5` with no rejection and no audit failure.
+- The bird is constructed and placed, and its position stays empty on screen, which is what `Bird::draw` returning on a null +0x4C predicts.
+- Measured against shipped mission scripts, rooms that fall back because of an unsupported object drop from 110 of 354 to 1 of 354. The remainder is `apex` in `dark6.lua`, the only room in the game that declares a crux. Bird rooms now render everything except the bird itself.
+- The game and its preview windows were closed at the end; no Recursed process remained.
+
+Not observed on screen: a jar or a froth, because neither has a Lua spawn path and both reach a preview only through a live outer room; and a stock cauldron room, because the cauldron chapter is not on the test menu. The authored cauldron exercises the same constructor and the same +0x4C destination read.
+
 ## Earlier state and interaction checks
 
 - State Lab dry and submerged chests target the same vault but select different automatic conditions.
@@ -83,4 +94,4 @@ The local backup verifier confirmed four backed-up files and unchanged original 
 
 ## Not covered
 
-Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, jars, cauldrons, every native entity destructor, and other executable versions remain outside the verified scope. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.
+Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, preserved jar instances, cauldron transition rules, every native entity destructor, and other executable versions remain outside the verified scope. Jars and cauldrons now render natively; only their state semantics are unverified. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.

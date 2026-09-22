@@ -21,12 +21,19 @@ int main(){
  assert(c.tileset=="tiles/cave"&&c.pattern=="backgrounds/checker");
  assert(c.tiles[0].frame==8&&c.tiles[0].kind==1);
  assert(a.tiles[9*20+10].definition=="brick_u"&&b.tiles[11*20+9].definition=="watersurface");
+ // Every kind the native scene learned after chests and keys, in one authored room.
+ auto props=peek::loadSnapshot("runtime","missions/peek-lab","props",false);
+ assert(props.error.empty()&&props.objects.size()==5);
+ bool fan=false,generic=false,cauldron=false,bird=false;
+ for(auto& o:props.objects){fan|=o.kind=="fan";generic|=o.kind=="generic";
+   cauldron|=o.kind=="cauldron"&&o.target=="keyroom";bird|=o.kind=="bird";}
+ assert(fan&&generic&&cauldron&&bird);
  auto portals=peek::loadSnapshot("runtime","missions/peek-lab","portals",false);
  assert(portals.error.empty()&&portals.objects.size()==3);
  assert(portals.objects[0].kind=="player"&&portals.objects[0].x==3&&portals.objects[0].y==12);
  assert(portals.objects[1].kind=="yield"&&portals.objects[1].x==10&&portals.objects[2].target=="pool");
  // Asset file first, then the mesh entry inside it; they differ for jar and record.
- for(const auto& model:{std::pair<const char*,const char*>{"chest","chest"},{"key","key"},{"box","box"},{"crystal","crystal"},{"cauldron","cauldron"},{"yield","jar"},{"record","ring"}}){
+ for(const auto& model:{std::pair<const char*,const char*>{"chest","chest"},{"key","key"},{"box","box"},{"crystal","crystal"},{"cauldron","cauldron"},{"yield","jar"},{"record","ring"},{"fan","fan"},{"oobleck","oobleck"}}){
    auto kind=model.second;auto mesh=peek::loadMesh("runtime",model.first,model.second);
    if(!mesh.error.empty())std::cerr<<kind<<": "<<mesh.error<<"\n";
    assert(mesh.error.empty()&&mesh.faces.size()>12&&mesh.faces.size()<8192);

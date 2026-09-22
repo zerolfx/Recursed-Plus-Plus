@@ -51,11 +51,11 @@ The test menu includes **Preview Lab** (including a room with both return flames
 
 ## What is rendered
 
-Supported scenes create a private native Room, entities, and Renderer. The original rendering pipeline draws to a separate framebuffer at up to 30 Hz. Supported objects are chests, keys, locks, boxes, records, crystal/diamond/ruby collectibles, and red/green return portals. Terrain and water surfaces use native tile definitions, not guessed sprite-frame indices.
+Supported scenes create a private native Room, entities, and Renderer. The original rendering pipeline draws to a separate framebuffer at up to 30 Hz. Supported objects are chests, keys, locks, boxes, records, fans, cauldrons, jars, generics, birds, crystal/diamond/ruby collectibles, and red/green return portals. Terrain and water surfaces use native tile definitions, not guessed sprite-frame indices.
 
 Fresh destination objects use the original collision-aware spawn placement, including its twenty downward steps of 0.05 tiles for eligible bodies. This fixes objects hovering just above the floor. Ongoing gravity and buoyancy are not fast-forwarded; visual effects animate after placement. Existing outer-room objects retain their captured positions. No gameplay player is constructed in the preview.
 
-Rooms containing unsupported objects, such as jars, cauldrons, or birds, use the resource-based fallback renderer. Normal UI shows navigation and actionable errors, without implementation labels or manual water controls.
+Two objects are still handled differently. A room holding a crux uses the resource-based fallback renderer, because attaching one starts a looping sound and a preview stays silent. A bird is built into the scene, but the game creates its sprite inside the gameplay update a preview never runs, so the bird itself is not drawn; the fallback renderer does not draw birds either. Normal UI shows navigation and actionable errors, without implementation labels or manual water controls.
 
 The first level reads the actual chest's wet flag. Deeper levels infer wetness from snapshot tiles. Saved global objects replace initial declarations, and self-referencing previews read the current room's global objects. Held or destroyed objects are excluded where identified. Unvisited rooms retain their initial declarations.
 

@@ -46,7 +46,7 @@ Each additional native draw audits the real stack, Room data, and entity common 
 
 ## Remaining work
 
-- Additional special entities.
+- Cruxes, whose attach step starts a looping sound, and bird sprites, which only the gameplay update creates.
 - Carried-item context and successive hypothetical entry semantics.
 - Independent simultaneous preview windows; the current UI has one shared preview.
 - Preserved instances and cauldron semantics.

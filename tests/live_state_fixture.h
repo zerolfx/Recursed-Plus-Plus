@@ -58,6 +58,16 @@ inline void testLiveRoomRead(){
  memcpy(descriptor.data()+8,".?AVRecord@@",13);
  auto record=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
  assert(record.error.empty()&&record.objects.size()==1&&record.objects[0].kind=="record"&&record.objects[0].target=="inside");
+ // Cauldrons and jars keep a room name at the same offset, and must not lose it.
+ for(const char* rtti:{".?AVCauldron@@",".?AVJar@@"}){
+  memcpy(descriptor.data()+8,rtti,strlen(rtti)+1);
+  auto vessel=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
+  assert(vessel.error.empty()&&vessel.objects.size()==1&&vessel.objects[0].target=="inside");
+ }
+ // A fizzer is an invisible transient controller: it must be skipped, not reported.
+ memcpy(descriptor.data()+8,".?AVFizzer@@",13);
+ auto fizzer=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
+ assert(fizzer.error.empty()&&fizzer.objects.empty());
  memcpy(descriptor.data()+8,".?AVDoor@@",11);
  assert(!peek::readRoomReference(ptr(host.data()),ptr(outside.data()),1).error.empty());
  assert(!peek::readRoomReference(ptr(host.data()),ptr(inside.data()),2).error.empty());

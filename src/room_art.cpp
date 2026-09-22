@@ -25,7 +25,9 @@ static bool drawLock(Graphics& g,const std::string& root,const Object& o,float c
 }
 static std::string signature(const std::string& root,const Snapshot& s){std::ostringstream k;k<<root<<'|'<<s.tileset<<'|'<<s.pattern<<'|'<<s.error;for(auto c:s.dark)k<<'|'<<c;for(auto c:s.light)k<<'|'<<c;for(auto t:s.tiles)k<<','<<t.kind<<':'<<t.frame;for(auto& o:s.objects)k<<'|'<<o.kind<<':'<<o.target<<':'<<o.x<<':'<<o.y<<':'<<o.global;return k.str();}
 static bool drawMesh(Graphics& g,RoomArt& art,const std::string& root,const Object& o,float cell){
- std::string asset=o.kind,entry=o.kind;if(o.kind=="jar"){asset="yield";entry="jar";}if(o.kind=="record")entry="ring";if(o.kind!="chest"&&o.kind!="box"&&o.kind!="key"&&o.kind!="crystal"&&o.kind!="jar"&&o.kind!="cauldron"&&o.kind!="record")return false;
+ // Most kinds name their own asset and entry; these three do not.
+ std::string asset=o.kind,entry=o.kind;if(o.kind=="jar"){asset="yield";entry="jar";}if(o.kind=="record")entry="ring";if(o.kind=="generic"){asset="oobleck";entry="oobleck";}if(o.kind=="diamond"||o.kind=="ruby")asset="crystal";
+ if(o.kind!="chest"&&o.kind!="box"&&o.kind!="key"&&o.kind!="crystal"&&o.kind!="jar"&&o.kind!="cauldron"&&o.kind!="record"&&o.kind!="fan"&&o.kind!="generic"&&o.kind!="diamond"&&o.kind!="ruby")return false;
  auto key=root+"/"+asset+"/"+entry;auto i=meshes.find(key);if(i==meshes.end())i=meshes.emplace(key,loadMesh(root,asset,entry)).first;if(!i->second.error.empty()||i->second.faces.empty())return false;
  struct Projected {PointF p[3];Color color;float depth[3];};std::vector<Projected> faces;
  for(const auto& f:i->second.faces){Projected p{};Vec3 v[3];for(int j=0;j<3;j++){auto a=f.p[j];v[j]={a.x*.96f+a.z*.28f,a.y,-a.x*.28f+a.z*.96f};p.p[j]={cell*(o.x+v[j].x),cell*(o.y+((o.kind=="chest"||o.kind=="jar"||o.kind=="cauldron")?.5f:o.kind=="record"?.15f:0)-v[j].y+v[j].z*.20f)};p.depth[j]=v[j].z+v[j].y*.20f;}
