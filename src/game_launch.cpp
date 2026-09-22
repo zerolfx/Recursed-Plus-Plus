@@ -21,6 +21,27 @@ Remote runRemote(HANDLE process,LPTHREAD_START_ROUTINE fn,void* arg){
     else out.timedOut=true;
     CloseHandle(t);return out;
 }
+// A game is created suspended and only resumed once the mod is in it. A launcher that dies in
+// between - closed, killed, crashed - would otherwise leave that process alive forever with no
+// window and no way to close it. Everything in this job dies with the launcher until the flag is
+// dropped, which happens the moment the game is about to run on its own.
+struct KillWithUs {
+    HANDLE handle=nullptr;
+    void adopt(HANDLE process){
+        handle=CreateJobObjectW(nullptr,nullptr);
+        if(!handle)return;
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if(!SetInformationJobObject(handle,JobObjectExtendedLimitInformation,&limits,sizeof limits)
+           ||!AssignProcessToJobObject(handle,process)){CloseHandle(handle);handle=nullptr;}
+    }
+    void release(){
+        if(!handle)return;
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        SetInformationJobObject(handle,JobObjectExtendedLimitInformation,&limits,sizeof limits);
+    }
+    ~KillWithUs(){if(handle)CloseHandle(handle);}
+};
 void stop(PROCESS_INFORMATION& pi){
     TerminateProcess(pi.hProcess,5);WaitForSingleObject(pi.hProcess,5000);
     CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
@@ -86,6 +107,8 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
     if(!CreateProcessW(exe.c_str(),cmd.data(),nullptr,nullptr,FALSE,CREATE_SUSPENDED,nullptr,folder.c_str(),&si,&pi)){
         error=L"Windows refused to start the game (error "+std::to_wstring(GetLastError())+L").";return 0;
     }
+    KillWithUs suspended;
+    suspended.adopt(pi.hProcess);
     step(L"Loading the mod...");
     const SIZE_T bytes=(plugin.size()+1)*sizeof(wchar_t);
     void* remote=VirtualAllocEx(pi.hProcess,nullptr,bytes,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
@@ -119,6 +142,8 @@ unsigned long launchModded(const std::wstring& exe,const std::wstring& plugin,St
         return 0;
     }
     VirtualFreeEx(pi.hProcess,remote,0,MEM_RELEASE);
+    // From here the game stands on its own and must outlive this launcher.
+    suspended.release();
     ResumeThread(pi.hThread);
 
     // The game dies within milliseconds if anything about its start-up is wrong, so a process

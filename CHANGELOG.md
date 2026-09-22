@@ -41,6 +41,8 @@ landed. Entries describe the behaviour, not the patch.
   whole progress back independently and the one that closes last decides what happened.
 - Starting without Steam asks first as well: the game cannot reach the progress you normally play,
   so that session would start from the mod's own save folder and stay there.
+- Closing the launcher while it is still starting the game no longer leaves a game behind that has
+  no window and never exits: the window stays open until the game is running on its own.
 - An import now leaves the save folder holding that Steam account's progress and nothing else, says
   when only part of it could be copied, and no longer reports "1 save files".
 - The modded game's window is titled Recursed++, so it is not mistaken for an ordinary run.

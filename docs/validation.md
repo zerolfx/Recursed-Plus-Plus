@@ -1,6 +1,6 @@
 # Validation
 
-Validated on 2026-09-22 using the supported Windows x86 executable. Interactive testing runs only the workspace runtime copy, with Steam unreachable, progress kept in this build's own save folder, and configuration isolated.
+Validated on 2026-09-22 using the supported Windows x86 executable. Most interactive testing runs the workspace runtime copy with Steam answered inside the process and progress kept in this build's own save folder. The Steam path is what a player gets by default, so it was also exercised against the installed Steam copy and a real account, with `tools/backup-saves.ps1` run first; those runs are called out where they appear.
 
 ## CI tests without game files
 
@@ -16,7 +16,7 @@ Validated on 2026-09-22 using the supported Windows x86 executable. Interactive 
 - Partial room results are discarded after a Lua failure.
 - Deterministic fallback particle sampling and bounded particle output.
 
-GitHub Actions compiles the x86 DLL, launcher, diagnostic utility, and all test binaries on Windows, runs these fixture tests, and packages an allowlisted patch ZIP. It does not download or redistribute Recursed and cannot validate native rendering without the game.
+GitHub Actions compiles the x86 DLL, launcher, diagnostic utility, and all test binaries on Windows, runs these fixture tests, and packages the two allowlisted downloads: the single executable a player takes and the developer bundle. It does not download or redistribute Recursed and cannot validate native rendering without the game.
 
 ## Local game-dependent tests
 
@@ -86,7 +86,7 @@ Not observed on screen: a jar or a froth, because neither has a Lua spawn path a
 
 ## Cursor visibility change
 
-The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook overrides that request, since the pointer is what chests are hovered with. Switching between game and popup was tested interactively. Test-mode logs read `GetCursorInfo` after the visibility change: `systemVisible=0` when inspection is disabled and `systemVisible=1` when enabled. This distinguishes the actual system cursor from the Computer Use pointer marker. Cursor diagnostics are emitted only with `RECURSED_PEEK_TEST_INPUT=1`.
+The supported executable explicitly hides its cursor during window initialization at `0x43E121`. The cursor hook overrides that request, since the pointer is what chests are hovered with, and inspection is always on, so there is no longer a state in which the game gets its way. Switching between game and popup was tested interactively. Test-mode logs read `GetCursorInfo` after the visibility change and report `systemVisible=1`, which distinguishes the actual system cursor from the Computer Use pointer marker. Cursor diagnostics are emitted only with `RECURSED_PEEK_TEST_INPUT=1`.
 
 ## Progress storage
 
@@ -124,7 +124,9 @@ Checked on 2026-09-22:
 - `tools/package.ps1` refuses to publish a launcher whose embedded bytes are not the `build/recursed_peek.dll` of that build, which is the failure a reordered or half-finished build would otherwise ship silently.
 - `tools/check-repository.ps1` fails if the resources stop carrying the mod or the notices, if the window launcher starts naming a DLL beside itself, if a developer diagnostic loses its flag, or if README.md starts pointing a player at the developer bundle's files.
 - The launcher's Notices page shows THIRD_PARTY_NOTICES.md from inside the executable, which is what carries Lua's licence with the copy now that there is no archive.
+- Not exercised: a default run on a machine where Steam is installed but not running, which is the branch that logs `Steam did not answer` and keeps that session in the save folder. The launcher warns before starting it, and the other two branches of the same decision are covered above.
 - The executable CI built was downloaded from its own run, put in a folder holding nothing else, and started the modded game with Steam connected. A second launch from the same folder reused the unpacked copy without rewriting it, and the copy an earlier build had left behind was swept.
+- A game started from the single executable keeps running after the launcher window is closed, which is what the job the launcher puts it in has to allow once the mod is in: that job exists only to take a suspended game with it if the launcher dies before it can be resumed.
 - `tools/check-repository.ps1` was checked against a deliberate break: renaming one of the two resources in src/embedded_plugin.cpp fails it with the name that no longer matches, and the check passes again once reverted.
 
 ## Save isolation

@@ -400,6 +400,11 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
             return 0;
         }
         return 0;
+    case WM_CLOSE:
+        // The game is suspended until the mod is in it, so closing now would strand it. It is
+        // seconds, or tens of them while security software reads an unfamiliar file.
+        if(gBusy){say(L"Starting the game. This window can be closed once it has started.");return 0;}
+        break;
     case WM_DESTROY:
         if(gFont)DeleteObject(gFont);
         if(gMonoFont)DeleteObject(gMonoFont);

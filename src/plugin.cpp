@@ -175,7 +175,9 @@ static bool __fastcall pollEventHook(void* window,void*,void* event){
     int* e=(int*)event;
     if(bufferedTestInput&&(e[0]==5||e[0]==6||e[0]==9))log("Input event type=%d code=%d",e[0],e[1]);
     // SFML 2 Event: type, then the event union (key code or mouse button).
-    if(e[0]==2){memset(keyDown,0,sizeof keyDown);memset(keyUntil,0,sizeof keyUntil);}
+    // Losing focus ends every key the game thinks is down, including the Escape this was about to
+    // swallow the release of; keeping that latch would eat the next press instead.
+    if(e[0]==2){memset(keyDown,0,sizeof keyDown);memset(keyUntil,0,sizeof keyUntil);escapeSwallowed=suppressEscape=false;}
     // An Escape that closed a preview is the player's answer to the preview, not to the game.
     // Swallowing the press alone is not enough: the pause menu opens on the release, which
     // arrives after the key is physically up and every held-key test has already gone quiet.
@@ -428,9 +430,11 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     // to be a path the active code page can spell. A user name outside that code page would
     // otherwise arrive as question marks and every save would fail somewhere unpredictable.
     const auto narrow=peek::narrowUsable(profile);
-    if(narrow.empty())return 0;
+    if(narrow.empty()){log("This account's profile path cannot be spelled in the active code page, and the game opens its files by that name; refusing to start");return 0;}
     strcpy_s(profilePath,MAX_PATH,narrow.c_str());
-    char exe[MAX_PATH];GetModuleFileNameA(nullptr,exe,MAX_PATH);char* slash=strrchr(exe,'\\');if(!slash)return 0;*slash=0;gameRoot=exe;
+    char exe[MAX_PATH];GetModuleFileNameA(nullptr,exe,MAX_PATH);char* slash=strrchr(exe,'\\');
+    if(!slash){log("The game's own path came back without a folder; refusing to start");return 0;}
+    *slash=0;gameRoot=exe;
     const unsigned char expected[]={0x55,0x8b,0xec,0x83,0xec,0x20};
     if(memcmp(address(0x440A20),expected,sizeof expected)){log("Build signature mismatch");return 0;}
     if(!hookImport("SHELL32.dll","SHGetFolderPathA",(void*)isolatedFolder,(void**)&originalFolder)){log("Profile hook failed; refusing to start");return 0;}
