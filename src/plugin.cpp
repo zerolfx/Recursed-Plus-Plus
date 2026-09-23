@@ -42,12 +42,19 @@ static std::vector<ChestView> chests;
 static bool pinned=false,previewWet=false;
 static uintptr_t pinnedId=0;
 static uintptr_t hoveredId=0;
-struct PreviewStep {std::string room;bool wet=false;int ancestors=-1;int renderDepth=-1;uintptr_t chestId=0;peek::Snapshot parentSnapshot{};};
+// depth is relative to the room being played, not the engine's absolute depth: carrying a pinned
+// chest out through a flame builds no room, so the pin survives a change of the room it counts from.
+// A live step (ancestors>=0) takes its depth from ancestors instead.
+struct PreviewStep {std::string room;bool wet=false;int ancestors=-1;int depth=1;uintptr_t chestId=0;peek::Snapshot parentSnapshot{};};
 static std::vector<PreviewStep> previewPath;
 // What going back stepped out of, so the side buttons can walk the path in both directions.
 static std::vector<PreviewStep> forwardPath;
 static peek::Snapshot preview,templatePreview;
 static std::string previewKey;
+// Frame the inset was last drawn or held on, and for which chest. Zero once a preview ends, so
+// a preview that was closed is never held over whatever opens next.
+static uint64_t heldFrame=0;
+static uintptr_t heldChest=0;
 using FopenFn=void*(__cdecl*)(const char*,const char*);
 static FopenFn originalFopen;
 static void* __cdecl fopenHook(const char* file,const char* mode){
@@ -55,7 +62,7 @@ static void* __cdecl fopenHook(const char* file,const char* mode){
     if(result&&file&&mode&&mode[0]=='r'){
         std::string name=file;std::replace(name.begin(),name.end(),'\\','/');auto p=name.find("missions/");
         if(p!=std::string::npos&&name.size()>4&&name.substr(name.size()-4)==".lua"){
-            auto mission=name.substr(p);if(mission!=missionPath){peek::requestNativeMirror(false);nativeTest=false;missionPath=mission;previewKey.clear();pinned=false;previewPath.clear();log("Mission file %s",missionPath.c_str());}
+            auto mission=name.substr(p);if(mission!=missionPath){peek::requestNativeMirror(false);nativeTest=false;missionPath=mission;previewKey.clear();pinned=false;previewPath.clear();heldFrame=0;log("Mission file %s",missionPath.c_str());}
         }
     }return result;
 }
@@ -134,7 +141,7 @@ static uintptr_t __fastcall buildRoomHook(void* host,void*,void* tiles,void* nam
     roomHost=(uintptr_t)host;
     auto tileset=oldString((char*)host+8);auto room=oldString(name);
     log("Build room tileset=%s room=%s wet=%u",tileset.c_str(),room.c_str(),wet&255);
-    pinned=false;previewPath.clear();previewKey.clear();chests.clear();return originalBuildRoom(host,tiles,name,wet);
+    pinned=false;previewPath.clear();previewKey.clear();chests.clear();heldFrame=0;return originalBuildRoom(host,tiles,name,wet);
 }
 static bool hookRoomBuilder(){
     auto* target=(unsigned char*)address(0x440a20);
@@ -192,6 +199,7 @@ static bool __fastcall pollEventHook(void* window,void*,void* event){
     // Mouse buttons: the two side buttons walk the preview history the way they walk a browser's.
     if(e[0]==9){
         if(e[1]==0){queuedClick=true;clickPopout=(GetKeyState(VK_SHIFT)&0x8000)!=0;}
+        if(e[1]==1&&pinned)queuedClose=true; // Right click lets go of a pinned preview.
         if(e[1]==3)queuedBack=true;
         if(e[1]==4)queuedForward=true;
     }
@@ -272,51 +280,82 @@ static void imageQuad(float x,float y,float w,float h){
     Vertex v[6]={{l,t,1,1,1,1,0,0,1},{r,t,1,1,1,1,1,0,1},{l,b,1,1,1,1,0,1,1},{l,b,1,1,1,1,0,1,1},{r,t,1,1,1,1,1,0,1},{r,b,1,1,1,1,1,1,1}};vertices.insert(vertices.end(),v,v+6);
 }
 static bool dismissedHover=false;
-static void clearPreview(){nativeTest=false;peek::requestNativeMirror(false);pinned=false;previewPath.clear();forwardPath.clear();previewKey.clear();dismissedHover=true;peek::closePreviewWindow();}
+static void clearPreview(){nativeTest=false;peek::requestNativeMirror(false);pinned=false;previewPath.clear();forwardPath.clear();previewKey.clear();dismissedHover=true;heldFrame=0;peek::closePreviewWindow();}
 static bool previewPortal(const peek::Object& o){return o.kind=="player"||o.kind=="yield";}
-static void enterPreview(const peek::Object& o){
-    if(previewPath.empty())return;
+static int relativeDepth(const PreviewStep& s){return s.ancestors>=0?-s.ancestors:s.depth;}
+// What a step shows. A click in the separate window carries the view it was aimed at, so a
+// click that arrives after the window has moved on is not applied to a different room.
+static std::string stepKey(const PreviewStep& s){return missionPath+"|"+s.room+"|"+(s.ancestors>=0?"live:"+std::to_string(s.ancestors):s.wet?"wet":"dry");}
+static std::string stepView(const PreviewStep& s){return stepKey(s)+"|"+std::to_string(relativeDepth(s));}
+enum class PreviewMove {None,Return,Enter};
+// Where clicking o inside the preview leads: back to the step before, or into next.
+// The click and the pinned hover line both ask here, so the line says what the click does.
+static PreviewMove previewMove(const peek::Object& o,PreviewStep& next){
+    if(previewPath.empty())return PreviewMove::None;
     if(previewPortal(o)){
-        if(previewPath.back().ancestors<0&&previewPath.size()>1){previewPath.pop_back();return;}
-        if(previewPath.size()>=8)return;
+        if(previewPath.back().ancestors<0&&previewPath.size()>1)return PreviewMove::Return;
+        if(previewPath.size()>=8)return PreviewMove::None;
         int up=previewPath.back().ancestors+1;
         uintptr_t owner=0;for(const auto& c:chests)if(c.id==pinnedId)owner=c.owner;
         auto parent=peek::readRoomReference(roomHost,owner,up);
-        if(parent.error.empty()){previewPath.push_back({parent.name,false,up,parent.depth});}
-    }else if(o.kind=="chest"&&previewPath.size()<8&&!o.target.empty()){
-        previewPath.push_back({o.target,peek::wetAt(preview,o.x,o.y),-1,preview.nativeDepth<0?-1:preview.nativeDepth+1,o.sourceId,preview});
-        forwardPath.clear();
+        if(!parent.error.empty())return PreviewMove::None;
+        next={parent.name,false,up,-up};return PreviewMove::Enter;
     }
+    if(o.kind!="chest"||previewPath.size()>=8||o.target.empty())return PreviewMove::None;
+    next={o.target,peek::wetAt(preview,o.x,o.y),-1,relativeDepth(previewPath.back())+1,o.sourceId};return PreviewMove::Enter;
 }
-static PreviewStep rootStep(const ChestView& c){return {c.room,c.wet,c.outward?1:-1,-1};}
+// A flame back to the step before is Back, so Forward can undo it. Any new step starts a new
+// branch, like a link in a browser: Forward must not graft on a step from the one left behind.
+static void enterPreview(const peek::Object& o){
+    PreviewStep next;auto move=previewMove(o,next);
+    if(move==PreviewMove::Return){forwardPath.push_back(std::move(previewPath.back()));previewPath.pop_back();}
+    else if(move==PreviewMove::Enter){if(!previewPortal(o))next.parentSnapshot=preview;forwardPath.clear();previewPath.push_back(std::move(next));}
+}
+static PreviewStep rootStep(const ChestView& c){return {c.room,c.wet,c.outward?1:-1};}
 static const peek::RoomArt* currentArt=nullptr;
+// The inset as it was last drawn, and where. Its image quad samples the texture, which keeps
+// the last uploaded art for as long as nothing new is uploaded.
+static std::vector<Vertex> heldInset;
+static float heldLeft,heldTop,heldRight,heldBottom;
 static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool open,bool close){
     auto action=peek::pumpPreviewWindow();
     if(action.action!=peek::PreviewAction::None)log("Preview window action=%d depth=%zu",(int)action.action,previewPath.size());
-    if(close||action.action==peek::PreviewAction::Close){clearPreview();return;}
-    if(nativeTest){currentArt=peek::nativeMirrorArt();if(currentArt){peek::Snapshot empty;peek::updatePreviewWindow(*currentArt,empty,"ACTIVE ROOM - NATIVE TEST",0,peek::nativeRenderStatus());}return;}
+    float u=std::max(1.0f,viewH/750.0f),cell=std::min(viewW/20,viewH/15);
+    float left=(viewW-cell*20)*.5f,top=(viewH-cell*15)*.5f;
+    // A pinned inset is opaque to the pointer: the game chests it covers are not hovered through it.
+    const bool overInset=pinned&&heldFrame+1==frame&&mouse.x>=heldLeft&&mouse.x<=heldRight&&mouse.y>=heldTop&&mouse.y<=heldBottom;
+    // pointed ignores focus: after a close from the separate window, it is what the pointer rests on.
+    const bool gameFocused=GetForegroundWindow()==gameWindow;
+    ChestView* hovered=nullptr;ChestView* pinnedChest=nullptr;ChestView* pointed=nullptr;
+    for(auto& c:chests){float x=left+(c.x-.5f)*cell,y=top+(c.y-(c.outward?.4f:.8f))*cell;
+        if(mouse.x>=x-8*u&&mouse.x<=x+cell+8*u&&mouse.y>=y-8*u&&mouse.y<=y+cell*(c.outward?1.4f:1.f)+8*u){pointed=&c;if(gameFocused&&!overInset)hovered=&c;}
+        if(c.id==pinnedId)pinnedChest=&c;
+    }
+    // Closing leaves the chest under the pointer dismissed until the pointer moves to another one,
+    // so a close is not answered by a new preview of whatever the pointer happened to rest on.
+    auto closeAll=[&]{clearPreview();hoveredId=pointed?pointed->id:0;};
+    if(close||action.action==peek::PreviewAction::Close){closeAll();return;}
+    if(nativeTest){currentArt=peek::nativeMirrorArt();if(currentArt){peek::Snapshot empty;peek::updatePreviewWindow(*currentArt,empty,"ACTIVE ROOM - NATIVE TEST",0,peek::nativeRenderStatus(),"");}return;}
     if(action.action==peek::PreviewAction::Back)back=true;
     if(action.action==peek::PreviewAction::Forward)forward=true;
     if(action.action==peek::PreviewAction::Dock)peek::closePreviewWindow();
-    if(action.action==peek::PreviewAction::Select)enterPreview(action.object);
-    float u=std::max(1.0f,viewH/750.0f),cell=std::min(viewW/20,viewH/15);
-    float left=(viewW-cell*20)*.5f,top=(viewH-cell*15)*.5f;
-    ChestView* hovered=nullptr;ChestView* pinnedChest=nullptr;
-    for(auto& c:chests){float x=left+(c.x-.5f)*cell,y=top+(c.y-(c.outward?.4f:.8f))*cell;
-        if(GetForegroundWindow()==gameWindow&&mouse.x>=x-8*u&&mouse.x<=x+cell+8*u&&mouse.y>=y-8*u&&mouse.y<=y+cell*(c.outward?1.4f:1.f)+8*u)hovered=&c;
-        if(c.id==pinnedId)pinnedChest=&c;
+    if(action.action==peek::PreviewAction::Select){
+        if(!previewPath.empty()&&action.view==stepView(previewPath.back()))enterPreview(action.object);
+        else log("Preview window click dropped: aimed at %s",action.view.c_str());
     }
+    // The click that pins a preview is spent on pinning, even where the inset covers the chest.
+    const bool wasPinned=pinned;
     if(pinned&&!pinnedChest){clearPreview();return;}
     if(peek::previewWindowOpen()&&!pinned){peek::closePreviewWindow();}
     if(back){
         if(previewPath.size()>1){forwardPath.push_back(previewPath.back());previewPath.pop_back();}
-        else{clearPreview();return;}
+        else{closeAll();return;}
     }
     if(forward&&pinned&&!forwardPath.empty()){previewPath.push_back(forwardPath.back());forwardPath.pop_back();}
     if(hoveredId!=(hovered?hovered->id:0))dismissedHover=false;
     if(!pinned){hoveredId=hovered?hovered->id:0;
         previewPath.clear();forwardPath.clear();if(hovered&&(!dismissedHover||clicked||open))previewPath.push_back(rootStep(*hovered));}
-    if((clicked||open)&&hovered&&(!pinned||clickPopout)){if(pinnedId!=hovered->id){previewPath.clear();}pinned=true;pinnedId=hovered->id;pinnedChest=hovered;dismissedHover=false;if(previewPath.empty())previewPath.push_back(rootStep(*hovered));}
+    if((clicked||open)&&hovered&&(!pinned||clickPopout)){if(pinnedId!=hovered->id){previewPath.clear();forwardPath.clear();}pinned=true;pinnedId=hovered->id;pinnedChest=hovered;dismissedHover=false;if(previewPath.empty())previewPath.push_back(rootStep(*hovered));}
     ChestView* active=pinned?pinnedChest:hovered;
     if(previewPath.empty()){peek::requestNativeMirror(false);return;}
     if(active&&(previewPath[0].wet!=active->wet||previewPath[0].room!=active->room)){
@@ -325,7 +364,11 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     // Revalidate live/global chests along the path, not just the visible room.
     // A removed entry returns to its parent; movement across water updates its branch.
     for(size_t i=1;i<previewPath.size();i++){
-        auto& child=previewPath[i];if(!child.chestId)continue;
+        auto& child=previewPath[i];
+        // An outer step names whatever room is that far out now: carrying the pinned chest out
+        // through a flame builds no room, so the same step can come to mean another one.
+        if(child.ancestors>=0){auto ref=peek::readRoomReference(roomHost,active?active->owner:0,child.ancestors);if(ref.error.empty()&&ref.name!=child.room)child.room=ref.name;continue;}
+        if(!child.chestId)continue;
         const auto& parent=previewPath[i-1];auto state=child.parentSnapshot;
         if(parent.ancestors>=0)state=peek::readRoomSnapshot(roomHost,active?active->owner:0,parent.ancestors,state);
         else {
@@ -340,7 +383,7 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     if(open||(clicked&&clickPopout)){if(open&&peek::previewWindowOpen())peek::closePreviewWindow();else if(!peek::showPreviewWindow(gameWindow))log("Preview window creation failed: %lu",GetLastError());}
     const auto step=previewPath.back();bool live=step.ancestors>=0;
     previewWet=step.wet;
-    const auto key=missionPath+"|"+step.room+"|"+(live?"live:"+std::to_string(step.ancestors):previewWet?"wet":"dry");
+    const auto key=stepKey(step);
     if(key!=previewKey){templatePreview=peek::loadSnapshot(gameRoot,missionPath,previewPath.back().room,previewWet);previewKey=key;log("Preview %s objects=%zu error=%s",key.c_str(),templatePreview.objects.size(),templatePreview.error.c_str());}
     const auto source=peek::readRoomReference(roomHost,active?active->owner:0,0);
     auto globals=peek::readGlobals(roomHost,active?active->owner:0,previewPath.back().room);
@@ -348,7 +391,7 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     else {
         preview=templatePreview;peek::applyGlobals(preview,globals);
         if(!globals.available&&preview.error.empty())preview.error=globals.error;
-        preview.nativeDepth=step.renderDepth>=0?step.renderDepth:source.depth+1;
+        preview.nativeDepth=source.depth<0?-1:source.depth+step.depth;
     }
     peek::requestNativeDestination(roomHost,preview,key,(int)previewPath.size());currentArt=peek::nativeDestinationArt(key);bool nativeArt=currentArt!=nullptr;
     // Reported after the scene exists, because attaching its entities is what would have
@@ -356,24 +399,46 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     static uint32_t reportedSilenced=0;
     if(auto refused=peek::nativeSilencedSounds();refused!=reportedSilenced){reportedSilenced=refused;log("Sound starts refused during preview work: %u",refused);}
     if(nativeArt)if(auto rendered=peek::nativeDestinationSnapshot(key))preview=*rendered;
-    if(!currentArt)currentArt=&peek::renderRoomArt(gameRoot,preview);
+    // The fallback is for rooms the original renderer cannot draw, not for the frame or two
+    // before it draws one: showing it there flashed schematic shapes on every new preview.
+    const bool waiting=!nativeArt&&preview.error.empty()&&peek::nativeDestinationPending(key);
+    if(!currentArt&&!waiting)currentArt=&peek::renderRoomArt(gameRoot,preview);
     const std::string status=preview.error.empty()?"":"Preview unavailable: "+preview.error;
-    int shownDepth=preview.nativeDepth-source.depth;
+    // From the step itself, so a rendered snapshot swapped in above cannot carry an older depth.
+    const int shownDepth=relativeDepth(step);
     if(active)rect(left+(active->x-.18f)*cell,top+(active->y+(active->outward?.98f:.43f))*cell,cell*.36f,2*u,1,.85f,.35f);
-    if(peek::previewWindowOpen()){peek::updatePreviewWindow(*currentArt,preview,previewPath.back().room,shownDepth,status);return;}
+    if(peek::previewWindowOpen()){if(currentArt)peek::updatePreviewWindow(*currentArt,preview,step.room,shownDepth,status,stepView(step));return;}
+    // Meanwhile a panel that is up stays as it was, and one that is not up yet waits. The held
+    // panel takes no clicks: they would be aimed at the room it still shows, not the one opening.
+    if(waiting){if(heldFrame+1==frame&&active&&active->id==heldChest){vertices.insert(vertices.end(),heldInset.begin(),heldInset.end());heldFrame=frame;}return;}
     float w=std::min(viewW-32*u,440*u),s=(w-24*u)/20,h=15*s+66*u;
     float x=viewW-w-16*u,y=76*u;if(active&&left+active->x*cell>viewW*.6f)x=16*u;
     if(y+h>viewH-8*u)y=std::max(68*u,viewH-h-8*u);
+    const size_t panel=vertices.size();
     rect(x,y,w,h,.045f,.06f,.1f);outline(x,y,w,h,.72f,.81f,.95f);
     text(x+12*u,y+12*u,"ROOM: "+previewPath.back().room.substr(0,32),1.6f*u);
-    text(x+12*u,y+29*u,std::string(pinned?"PINNED":"HOVER")+" DEPTH "+std::to_string(shownDepth),1.2f*u);
     float gx=x+12*u,gy=y+48*u;imageQuad(gx,gy,20*s,15*s);
+    // Only the first match is underlined, because that is the one a click enters.
+    const peek::Object* under=nullptr;
     for(const auto& o:preview.objects)if(o.kind=="chest"||previewPortal(o)){
         bool portal=previewPortal(o);float ox=gx+(o.x-.65f)*s,oy=gy+(o.y-(portal?.4f:.9f))*s;
-        if(mouse.x>=ox&&mouse.x<=ox+1.3f*s&&mouse.y>=oy&&mouse.y<=oy+(portal?1.4f:1.55f)*s){rect(gx+(o.x-.18f)*s,gy+(o.y+(portal?.98f:.43f))*s,.36f*s,2*u,1,.85f,.35f);if(pinned&&clicked){enterPreview(o);break;}}
+        if(mouse.x>=ox&&mouse.x<=ox+1.3f*s&&mouse.y>=oy&&mouse.y<=oy+(portal?1.4f:1.55f)*s){rect(gx+(o.x-.18f)*s,gy+(o.y+(portal?.98f:.43f))*s,.36f*s,2*u,1,.85f,.35f);under=&o;break;}
     }
+    // Pinned, the depth line also answers for what is hovered inside: its depth and room.
+    auto depthLine=std::string(pinned?"PINNED":"HOVER")+" DEPTH "+std::to_string(shownDepth);
+    PreviewStep next;auto move=pinned&&under?previewMove(*under,next):PreviewMove::None;
+    if(move!=PreviewMove::None){
+        const auto& to=move==PreviewMove::Return?previewPath[previewPath.size()-2]:next;
+        auto hover="   HOVER DEPTH "+std::to_string(relativeDepth(to))+": ";
+        size_t fit=(size_t)std::max(0.f,(w-24*u)/(7.2f*u));
+        if(depthLine.size()+hover.size()<fit)depthLine+=hover+to.room.substr(0,fit-depthLine.size()-hover.size());
+    }
+    text(x+12*u,y+29*u,depthLine,1.2f*u);
+    if(wasPinned&&clicked&&under)enterPreview(*under);
     if(!preview.error.empty())text(gx,gy+6*s,"PREVIEW UNAVAILABLE",1.5f*u);
     text(gx,gy+15*s+10*u,status.substr(0,62),u);
+    heldInset.assign(vertices.begin()+(ptrdiff_t)panel,vertices.end());heldFrame=frame;heldChest=active?active->id:0;
+    heldLeft=x;heldTop=y;heldRight=x+w;heldBottom=y+h;
 }
 static bool initGL(){
 #define LOAD(n) n=(n##Fn)wglGetProcAddress("gl" #n);if(!n)return false

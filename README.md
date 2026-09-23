@@ -42,10 +42,12 @@ The launcher's **Advanced** page holds the rest, for the times you want the mod 
 | Left click | Pin the preview in the game window |
 | Shift + left click | Open a separate preview window |
 | O | Move the preview between the game and a separate window |
+| Hover a chest or flame inside a preview pinned in the game window | Show the depth and room a click there opens |
 | Click a chest inside the pinned preview | Explore another level, up to depth 8 |
 | Click a red or green return flame | Look outside the room |
 | Mouse back and forward buttons | Walk the preview history in either direction |
 | Backspace | Go back in preview history; close at the root |
+| Right click | Close a pinned preview |
 | Esc | Close the preview without pausing the game |
 
 Inspection is always on, and nothing is drawn over the game until you hover something: the controls are in the launcher window rather than on screen. The system pointer stays visible, including when moving between the game and the preview window, because it is what you aim with.

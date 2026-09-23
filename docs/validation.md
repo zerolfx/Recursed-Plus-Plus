@@ -129,6 +129,19 @@ Checked on 2026-09-22:
 - A game started from the single executable keeps running after the launcher window is closed, which is what the job the launcher puts it in has to allow once the mod is in: that job exists only to take a suspended game with it if the launcher dies before it can be resumed.
 - `tools/check-repository.ps1` was checked against a deliberate break: renaming one of the two resources in src/embedded_plugin.cpp fails it with the name that no longer matches, and the check passes again once reverted.
 
+## Pinned hover depth, right click, and the fallback flash
+
+Computer Use checked the isolated build on 2026-09-23, with Steam not used. The saves were backed up with `tools/backup-saves.ps1` and verified with `tools/verify-backup.ps1` first. For the on-screen run only, a temporary build logged every preview frame drawn without the original renderer, and every change to the depth line. The logging is not part of the change.
+
+- The runtime copy of Preview Lab starts with a UTF-8 byte-order mark. The game loaded it, but every preview of it read "Preview unavailable" with a Lua error at line 1, and `snapshot_test` and `render_test` failed at their first load. The mod now skips the mark the way the game's own loader does, `build/ci_test.exe` covers it, and both game-dependent tests pass against that copy: 100/100 stock starting rooms, and the same 8,051 changed pixels as before.
+- Hovering the keyroom chest: the first frame waited and drew nothing, and the next frame drew the native panel. No frame in the whole run was drawn with the stand-in renderer. Five frames held the previous panel while a new room was drawn.
+- Pinned keyroom, pointer on its chest: "PINNED DEPTH 1   HOVER DEPTH 2: POOL". On its flame: "HOVER DEPTH 0: START". In pool: "PINNED DEPTH 2   HOVER DEPTH 3: KEYROOM". Clicking went to depth 3. After Backspace, pool's flame read "HOVER DEPTH 1: KEYROOM", and clicking it returned to keyroom at depth 1 with two rooms kept for Forward.
+- Right click over the pinned inset closed it. Right click on a pinned chest closed it, and that chest did not reopen as a hover preview until the pointer reached another chest, whose preview then appeared. Right click in the separate window, titled "Recursed++ | Depth 1 | props", closed the window and the preview. Backspace at the root from the separate window closed it and left the chest under the pointer dismissed.
+- With the Chinese input method active, O went to the input method and Shift switched its language, so Shift + click did not reach the game. After that switch, O opened the window. This is the input-method case the README already describes.
+- Not observed on screen: the mouse forward button, which Computer Use cannot press, a pinned chest carried out of a room, and the pin click over a chest the inset covers. The carried case rests on the executable: leaving through a flame pops the room stack at 0x440250 and never reaches the room builder at 0x440A20, whose only caller is entry at 0x43FCE0. That is why the pin survives, and why steps now store relative depth.
+- `tools/check-repository.ps1` passes. The build compiles without warnings at `/W4`.
+- The game and its preview window were closed at the end, and no Recursed process remained.
+
 ## Save isolation
 
 The local backup verifier confirmed eleven backed-up files and unchanged original hashes, covering both the Steam progress and this build's own save folder. The verifier had been reading a multi-entry manifest as one entry, which made it fail on any backup of more than one file; it now walks the entries. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.

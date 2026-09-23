@@ -27,6 +27,10 @@ static Snapshot renderedSnapshot;
 static std::string sceneKey,renderedKey;
 static int sceneDepth=1;
 static uint64_t lastSceneTick=0;
+// A new destination is drawn on the game's next render, not when it is asked for. Until that
+// draw has either landed or failed, the scene is only waiting, and waiting is not a failure.
+static bool sceneFailed=false;
+static uint64_t sceneAsked=0;
 using Rand=int(__cdecl*)();static Rand originalRand=nullptr;
 // 0x439070 starts a sound: the name arrives in ecx as a game string the caller owns, and it
 // returns a handle from a counter that starts at 1, so 0 and -1 are unassignable. The game
@@ -96,9 +100,9 @@ static void __fastcall renderHook(void* renderer,void*,void* context){
    else *(float*)(copy.data()+0x28)=0; // Do not advance the live particle simulation twice.
    if(drawable)original(selected,copy.data());}after=coreHash(renderer);
    if(before!=after||!before){disabled=true;requested=false;art.pixels.clear();status="Native preview disabled: gameplay audit failed";}
-   else if(!drawable){art.pixels.clear();status=nativeSceneError();}
+   else if(!drawable){art.pixels.clear();sceneFailed=true;status=nativeSceneError();}
    else if(before&&before==after){readback();renderedKey=sceneKey;status="Native renderer: live room stack and entity fields unchanged";if(destination){renderedSnapshot=nativeSceneSnapshot();art.note=scene.live?"Original engine / captured outer room / physics frozen":"Original engine / native spawn settling / physics frozen after placement";}}
-  }else status="Native replay target unavailable";
+  }else {sceneFailed=true;status="Native replay target unavailable";}
  }
  // The normal draw runs last, restores the engine's expected render state and presents normally.
  original(renderer,context);
@@ -120,8 +124,10 @@ void requestNativeMirror(bool enabled){requested=enabled&&!disabled;destination=
 bool nativeMirrorRequested(){return requested;}
 const RoomArt* nativeMirrorArt(){return art.pixels.empty()?nullptr:&art;}
 const std::string& nativeRenderStatus(){return status;}
-void requestNativeDestination(uintptr_t host,const Snapshot& snapshot,const std::string& key,int pathDepth){if(key!=sceneKey||host!=sourceHost||pathDepth!=sceneDepth){art.pixels.clear();lastSceneTick=0;}sourceHost=host;scene=snapshot;sceneKey=key;sceneDepth=pathDepth;destination=true;requested=!disabled;}
+void requestNativeDestination(uintptr_t host,const Snapshot& snapshot,const std::string& key,int pathDepth){if(key!=sceneKey||host!=sourceHost||pathDepth!=sceneDepth){art.pixels.clear();lastSceneTick=0;sceneFailed=false;sceneAsked=GetTickCount64();}sourceHost=host;scene=snapshot;sceneKey=key;sceneDepth=pathDepth;destination=true;requested=!disabled;}
 const RoomArt* nativeDestinationArt(const std::string& key){return destination&&renderedKey==key&&!art.pixels.empty()?&art:nullptr;}
+// Bounded, so a game that stops rendering cannot hold a preview back forever.
+bool nativeDestinationPending(const std::string& key){return destination&&requested&&sceneKey==key&&art.pixels.empty()&&!sceneFailed&&GetTickCount64()-sceneAsked<300;}
 const Snapshot* nativeDestinationSnapshot(const std::string& key){return nativeDestinationArt(key)?&renderedSnapshot:nullptr;}
 bool nativeRenderWork(){return working;}
 uint32_t nativeSilencedSounds(){return silenced;}

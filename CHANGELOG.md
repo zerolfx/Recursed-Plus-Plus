@@ -7,8 +7,32 @@ landed. Entries describe the behaviour, not the patch.
 
 ### Fixed
 
+- A new preview no longer flashes a rough stand-in for a moment before the room appears, the one
+  that drew a return flame as a plain oval. It now appears once the game has drawn it, and a
+  preview that is already up keeps its picture until the next room is ready. The stand-in is
+  only used for a room the game's own renderer cannot draw.
+- The mouse's forward button no longer jumps into a room from a path you had already left.
+  Clicking a return flame back to the previous room now counts as going back, so forward returns
+  to where you were, and opening a new room or pinning another chest starts a fresh history.
+- A pinned preview of a chest you carry out of the room keeps the right depths. Walking out does
+  not rebuild the room, so the preview stays pinned, and the rooms opened inside it used to read
+  one level too deep.
+- The click that pins a preview no longer also opens whatever the new preview shows under the
+  pointer, and the chests a pinned preview covers can no longer be hovered or Shift-clicked
+  through it. Both could happen wherever the preview lay over a chest in the room.
+- A quick second click in the separate preview window no longer opens a chest from the room it
+  was just leaving.
 - Rooms from a mission file saved with a byte-order mark, which Notepad adds, can be previewed.
   The game always read such a file, but every preview of it said "Preview unavailable".
+
+### Added
+
+- Hovering a chest or return flame inside a preview pinned in the game window now shows the
+  depth and room a click there would open, beside the pinned depth. Before, the depth line only
+  ever described the pinned room, so it looked as if it had stopped updating.
+- Right click closes a pinned preview, over the game and in the separate preview window. Closing
+  a preview no longer opens another one straight away for a chest that happened to be under the
+  pointer; that chest waits until the pointer moves to a different one.
 
 ## 1.0.0 - 2026-09-22
 
