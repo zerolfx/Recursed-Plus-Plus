@@ -3,7 +3,7 @@
 What changed for someone playing with this mod, newest first. Dates are the day the change
 landed. Entries describe the behaviour, not the patch.
 
-## Unreleased
+## 1.2.0 - 2026-09-23
 
 ### Added
 
