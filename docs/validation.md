@@ -142,6 +142,32 @@ Computer Use checked the isolated build on 2026-09-23, with Steam not used. The 
 - `tools/check-repository.ps1` passes. The build compiles without warnings at `/W4`.
 - The game and its preview window were closed at the end, and no Recursed process remained.
 
+## Undo increment
+
+Checked on 2026-09-23 against the runtime copy, isolated from Steam, in Preview Lab reached from the level map. Undo sat on F9 and F11 for most of these runs and was then moved to Q and W; the replay behind both is the same, and the last runs below used Q and W. Every undo goes through the game's own Restart, which rewrites the save, so the saves were backed up with `tools/backup-saves.ps1` and checked with `tools/verify-backup.ps1` first. The game was driven by key messages posted to its window with `RECURSED_PEEK_TEST_INPUT=1`, and captured with `PrintWindow`, so no pointer was over the game. F8, in a development run, restarts the level, replays every recorded tick and compares each tick's room digest with the one recorded; a mismatch would stop the replay at that tick and say so in the log. None did.
+
+| Case | Ticks replayed | Replay time |
+| --- | --- | --- |
+| Walk from rest, F9 | 504 | 0.6 ms |
+| F8 after entering keyroom and moving there | 2224 | 4.1 ms |
+| F8 after picking up a chest and throwing it at a wall | 4266 | 4.9 ms |
+| F11, five seconds back | 4938 | 5.7 ms |
+| F8 after start, pool, swimming, then keyroom inside pool | 3281 | 5.3 ms |
+| F8 after the oobleck in props set into a solid object, fan, cauldron, bird and crux present | 5472 | 11.0 ms |
+| F8 after two minutes of seeded random walking, jumping, grabbing and throwing in props | 11452 | 32.0 ms |
+
+- F9 after walking put the player back on the starting spot. Three F9 presses after entering keyroom went back through the jump inside it, the walk inside it, and the jump into the chest, landing in the start room where that jump began.
+- After each F8 the room was the same on screen as before it: the player, the thrown chest against the wall, the set oobleck and the bird in the same places. Only animation phases differed, and the bird's subtitle was gone, because the replay is silent.
+- The pause menu's own Restart started a new recording, without a replay. F9 with nothing done yet showed "NOTHING TO UNDO" and did not restart.
+- Two F9 presses that arrived in one batch of events went back two actions.
+- Every undo logged `Progress saved: save0 (1098 bytes)`, the game's own Restart rewriting the unchanged save.
+- Q after a jump and a walk went back before the walk, and Q again before the jump; W with under five seconds played went back to the start of the level.
+- With Right still held through an undo, the next Q went back past the walk that resumed, rather than returning to the same moment. Two Q presses made inside the pause menu did nothing when play resumed.
+- With the profile's `controls` setting binding Q to Jump, in the game's own comma-separated format, Q jumped and did not undo, and the log said why; W still went back. The profile's `recursed.ini` was copied aside first and restored afterwards, hash unchanged.
+- Not exercised: RB and RT, since no gamepad was attached; Q and W forwarded from the separate preview window, which needs a pointer over a chest to open it; and the crux hum after an undo in its own room, since the captures have no sound.
+
+The digests cover positions, velocities, contact bits, the player's move state, the held item and a few kind-specific fields, never a heap pointer. They are not a proof that every field matches, only that nothing they cover ever differed.
+
 ## Save isolation
 
 The local backup verifier confirmed eleven backed-up files and unchanged original hashes, covering both the Steam progress and this build's own save folder. The verifier had been reading a multi-entry manifest as one entry, which made it fail on any backup of more than one file; it now walks the entries. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.

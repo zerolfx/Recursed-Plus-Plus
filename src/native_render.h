@@ -15,4 +15,10 @@ bool nativeDestinationPending(const std::string& key);
 bool nativeRenderWork();
 // Sound starts refused while building, drawing or tearing down a preview scene.
 uint32_t nativeSilencedSounds();
+// Between these, rand() outside preview work draws from 'random' rather than the C runtime, and
+// with 'silent' every sound start is refused. The rewind brackets each game tick with them.
+void enterGameplay(uint32_t* random,bool silent);
+void leaveGameplay();
+// Sound starts refused while a rewind was catching up.
+uint32_t replaySilencedSounds();
 }

@@ -101,6 +101,29 @@ Old MSVC strings use the game's constructors/destructors; all native allocations
 
 Only original spin rates and draw transforms advance, alongside native renderer effects. Key adds `dt * 3`, Generic `dt * 2` and Crystal `dt * 0.6` unconditionally in their own updates, before their first branch, and Fan integrates the rate at +0x54, which its constructor sets to the same 10.0 its ramp clamps to. The preview advances each registered angle at its own rate. Record, cauldron and jar reach the shared body step `0x415490`, whose rotation is gated on +0x48; their constructors clear it, so a resting one does not spin in the original game either. A private RNG stream supplies original `rand` calls during preview work, avoiding consumption of the normal game's stream. The `player` script declaration creates only a Door in the preview; `yield` creates its green variant. A private empty entry context is sufficient for the audited constructor, attach, draw, and destructor paths. Gameplay portal update/interaction and Player construction are never invoked. Unsupported entity kinds use the resource-rendering fallback.
 
+## Rewind
+
+Host::run `0x434860` is a fixed-step loop: the step is `sf::microseconds(16666)` at `0x48C668`, at most ten ticks are caught up per frame, and each tick polls events, samples input, and calls the component's vtable `+8` with `dt = [0x48A084] * [0x47CE64]` (`1/60`). `0x48A084` is the game speed, 1.0 unless Shift+F5/F6/F7/F8/F10 set it to 0.25, 0.5, 0.75, 1.0 or 1.8, and it survives a Restart. The game reacts to no key event without Shift.
+
+The player's controls are 16-byte records at App+4+0x28..+0x2C: action, kind (0 key, 1 joystick button, 2 axis below centre, 3 axis above, threshold 64) and code. A button's code indexes 12-byte records of joystick and button at App+4+0x1C, and an axis's indexes records of joystick, axis and calibrated centre at App+4+0x10. The defaults are the arrows, Z or Y to jump and X to use, gamepad button 0 to jump, 2 to use and 7 to pause, the first two axes to move, and the fixed Escape for Pause and Return for Confirm. Q, W, button 5 (RB) and the Z axis, where the Xbox driver reports the triggers through the joystick API SFML uses, are free unless the player binds them, so undo takes them and gives way when the list says otherwise.
+
+| Address | Role |
+| --- | --- |
+| Game vtable `0x47B4D4` | `+4` attach `0x4199B0` sets Game+8 = App+4; `+8` update `0x4199C0`; `+0x10` pause `0x419E40` |
+| `0x419820` | Game constructor (mission name); only called at `0x41E344` and `0x422FFC` |
+| `0x408540` | Input poll into App+4: eight actions (Up, Down, Left, Right, Jump, Use, Pause, Confirm), a held byte and a changed byte each |
+| `0x48C580`, `0x48A050` | Room serial and unnamed-jar counter; only ever incremented |
+| `0x48C585` | Steam answered; every Steam call tests it first |
+| `0x48C67C`/`0x48C680` | Active sounds: `unique_ptr` to 0x34-byte instances, `sf::Sound` at +0x24, handle at +0x30 |
+
+Update runs the top Room's update `0x41C8C0` and then drains the room's event queue; entity transforms (vtable `+0xC`) run there too, not in draw. Game::draw writes nothing that update reads. Gameplay reads input only through `[[Player+0x48]]`, which is Game+8, and only the bytes recorded after the poll: while the window is out of focus the poll is skipped and the bytes stand still, and while the Steam overlay is open it leaves every action released.
+
+Pause's Restart sets App+0xB8 = 1 and App+0xB4 = 1, and Host::run returns 1. Both callers that run a Game then destroy it, zero the same stack slot, and construct a new one there for the same mission name: `0x42300F` for missions from the level map, which first runs the save serializer `0x436560`, the achievement check `0x423CA0` and a door refresh, and `0x41E360` for a mission named on the command line, which runs nothing in between. Host::run calls attach once per run, clears App+0xB4 after it, and only then creates the clock it measures ticks against. The pause flag is latched before update and handled after it, so a Pause edge on the tick that asks for Restart would open the menu and clear the request.
+
+rand() is the C runtime's, seeded once by `srand(time)` at `0x41E17F`. Gameplay draws from it in entity constructors (yaw), Bird `0x40F57B`/`0x40F82C`, the oobleck's time to set `0x414EE9`, Fizzer and froth, and the lock glint; the renderer constructor draws 1536 values. Draw-phase particles, the music picker `0x41EBD5`, and every sound start (pitch at `0x439132`) draw from it at rates set by the frame rate and the audio device, and the footstep sound restarts only when the previous one has left a list the draw phase prunes. None of the entity code orders anything by pointer or reads uninitialised physics fields; physics is scalar SSE and the game never changes MXCSR. Mission scripts run in a Lua state with no standard libraries, so they cannot draw random numbers themselves.
+
+Entity bytes +0x08..+0x45 hold no pointer: position, velocity, acceleration, impact speed, half extents, angle (Player facing, Bird heading), property, contact, category and mask bits, and the pending-destruction and global bytes. The held item is Game+0x0C. Player+0x54 is wetness and +0x60..+0x7F its re-entry cooldown and move state; Player+0x58, Record+0x64 and Crux+0x5C hold sound handles, which a silent replay leaves empty.
+
 ## Validation boundary
 
 The native renderer compares the live stack, the Room's first 0xA0 bytes, and each entity's first 0x48 bytes before and after extra rendering. A mismatch disables native rendering for that process. This does not audit every entity-specific field, GPU cache, external subsystem, or all possible game states.

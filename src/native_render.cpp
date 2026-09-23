@@ -39,12 +39,34 @@ using Rand=int(__cdecl*)();static Rand originalRand=nullptr;
 // a preview silent, rather than relying on each entity happening not to play anything.
 using PlaySound=int(__thiscall*)(const void*);
 static PlaySound originalPlaySound=nullptr;
+// Game ticks run through Game::update draw rand() from a stream the rewind keeps, so the same
+// ticks can be run again from the same start. A replay also starts no sound: it is catching up
+// on ticks the player already heard.
+static uint32_t* gameplayRandom=nullptr;
+static bool gameplaySilent=false;
+static uint32_t replaySilenced=0;
+// A started sound draws its pitch from rand(). That draw belongs to the sound, not to the room,
+// so it stays on the C runtime's stream: a replay that starts nothing then draws the same
+// numbers for everything else.
+static bool startingSound=false;
+// The crux hum is the one sound that loops, and whatever a replay attached is still humming
+// when it ends; every other start is a moment already past. The name is a game string.
+static bool loops(const void* name){
+ auto n=*(const uint32_t*)((const char*)name+16),capacity=*(const uint32_t*)((const char*)name+20);
+ const char* text=capacity<16?(const char*)name:*(const char*const*)name;
+ return text&&n==16&&!memcmp(text,"sounds/core-idle",16);
+}
 static int __fastcall playSoundHook(const void* name,void*){
- if(!working)return originalPlaySound(name);
- silenced++;return -1;
+ if(working){silenced++;return -1;}
+ if(gameplaySilent&&!loops(name)){replaySilenced++;return -1;}
+ startingSound=true;int handle=originalPlaySound(name);startingSound=false;return handle;
 }
 static uint32_t privateRandom=0x1234abcd;
-static int __cdecl isolatedRand(){if(!working)return originalRand();privateRandom=privateRandom*214013u+2531011u;return (privateRandom>>16)&0x7fff;}
+static int __cdecl isolatedRand(){
+ if(working){privateRandom=privateRandom*214013u+2531011u;return (privateRandom>>16)&0x7fff;}
+ if(gameplayRandom&&!startingSound){*gameplayRandom=*gameplayRandom*214013u+2531011u;return (*gameplayRandom>>16)&0x7fff;}
+ return originalRand();
+}
 #define FN(ret,name,...) using name##Fn=ret(APIENTRY*)(__VA_ARGS__);static name##Fn name
 FN(void,GenFramebuffers,GLsizei,GLuint*);FN(void,BindFramebuffer,GLenum,GLuint);
 FN(void,FramebufferTexture2D,GLenum,GLenum,GLenum,GLuint,GLint);FN(GLenum,CheckFramebufferStatus,GLenum);
@@ -131,4 +153,7 @@ bool nativeDestinationPending(const std::string& key){return destination&&reques
 const Snapshot* nativeDestinationSnapshot(const std::string& key){return nativeDestinationArt(key)?&renderedSnapshot:nullptr;}
 bool nativeRenderWork(){return working;}
 uint32_t nativeSilencedSounds(){return silenced;}
+void enterGameplay(uint32_t* random,bool silent){gameplayRandom=random;gameplaySilent=silent;}
+void leaveGameplay(){gameplayRandom=nullptr;gameplaySilent=false;}
+uint32_t replaySilencedSounds(){return replaySilenced;}
 }

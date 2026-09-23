@@ -44,6 +44,28 @@ Do not invoke the real chest-entry path for a preview: it modifies the room stac
 
 Each additional native draw audits the real stack, Room data, and entity common fields. A failed audit disables native rendering for the process. GPU caches and all entity-specific fields are not covered by that audit. Scene changes invalidate previews, and native resources are rebuilt when the target snapshot changes. Both inline and separate-window presentations use the same refreshed snapshot. Nested live/global entries retain source identity and are revalidated; deletion returns to the parent and changed liquid conditions refresh the branch. Window click actions retain the displayed object instead of a potentially stale vector index, together with the view it was clicked in; a click for a view no longer shown is dropped. Outer steps take their depth from the actual stack, and each inner step is one deeper than the step it was opened from, including paths that go outside and then inside again. Steps store depth relative to the room being played, not the engine's absolute depth, because walking out through a flame builds no room: a pinned chest carried out keeps its preview, and its depths stay right. A flame back to the previous step is Back, and any new step clears Forward.
 
+## Undo
+
+Undo is the one feature that changes play rather than showing it, and it does so without writing any game state of its own. The game keeps nothing it could return to, and copying a whole world back in would mean owning every field of every entity. What it does keep is determinism: Game::update runs at a fixed 1/60 s step, only the room on top of the stack is simulated, and the player's input reaches it as sixteen bytes sampled once per tick. So a mission is its start plus the sequence of those ticks, and any earlier moment is the start plus a prefix of them.
+
+```text
+Each tick of play: record controls, step, room digest
+Undo: pick a target tick, ask for the game's own Restart
+New Game for the same mission, before its clock starts:
+  restore the counters it started with, reseed gameplay randomness
+  run the recorded ticks up to the target, silently, comparing each digest
+  resume live play from there
+```
+
+- A recording starts with each Game the game builds, so it covers the level from its start or from the player's own Restart, and ends when the level does. The Restart a rewind asks for is recognised by mission name, because the new Game lives at the old one's address.
+- The replay runs inside Game::attach, before Host::run starts the clock its ticks are measured against, so the time it takes is not made up afterwards as a burst of extra ticks.
+- rand() is shared by gameplay, rendering, particles, music and sound pitch, and the draws outside gameplay happen at a rate set by the frame rate and the audio device. Inside Game::update and the Game constructor, rand() therefore comes from a stream seeded per recording; everywhere else, including the pitch of a sound started during a tick, it stays on the C runtime. The oobleck's time to set and the bird's flight are the draws this protects.
+- A replay starts no sound except the crux hum, the only one that loops, which must still be humming afterwards. Every sound still playing is stopped before the new Game is built, so a hum its first room starts survives. Steam is switched off for the replay's duration, so chest entries are not counted in the rooms statistic twice.
+- An action is a press of Jump or Use, or any control pressed from rest; turning round while moving continues the same one. Undo lands on the tick before the latest action start. Each tick records what was held on the tick of play before it, and the first tick after a rewind records what was held when the rewind was asked for, so a key kept down through it is not a new action. Presses are counted, since several can arrive before the next tick, and the pause menu's own loop does not take them. Five seconds count the steps actually taken, so a changed game speed goes back as far in game time.
+- Each recorded tick carries a digest of the room it left: the stack's room names, the room's size, state and clock, and every entity's shared physics fields and a few kind-specific ones, with no heap pointer in it. A replayed tick that disagrees ends the replay there, keeps play going from that tick, and tells the player the rewind was not exact. None has disagreed in testing.
+
+The cost is a replay of everything since the level started, about 1 to 3 µs a tick depending on the room, plus a millisecond or two for each room it builds: three minutes of busy play took 32 ms, and an hour in one level would take about half a second. Checkpoints would only be worth their complexity beyond that.
+
 ## Remaining work
 
 - Cruxes, whose attach step starts a looping sound, and bird sprites, which only the gameplay update creates.
@@ -52,5 +74,6 @@ Each additional native draw audits the real stack, Room data, and entity common 
 - Preserved instances and cauldron semantics.
 - Reliable pause-on-inspection and optional explored-only previews.
 - Broader lifecycle, performance, and game-version coverage.
+- Redo after an undo, until new input takes a different path.
 
 Acceptance cases include dry/wet destinations, self-reference, collected global keys, two chests targeting the same room, target destruction, scene restart, repeated nesting and return, and closing either presentation without changing player state.

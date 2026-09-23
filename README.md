@@ -1,6 +1,6 @@
 # Recursed++
 
-A Windows x86 mod that lets you inspect rooms inside chests and look back through return portals, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep.
+A Windows x86 mod that lets you inspect rooms inside chests and look back through return portals, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep. A move you regret can be undone.
 
 The preview now uses Recursed's original renderer for terrain, depth-dependent backgrounds, lighting, models, chest particles, key rotation, and water effects. Room state remains approximate; rendering fidelity and entry-state simulation are separate concerns.
 
@@ -49,12 +49,20 @@ The launcher's **Advanced** page holds the rest, for the times you want the mod 
 | Backspace | Go back in preview history; close at the root |
 | Right click | Close a pinned preview |
 | Esc | Close the preview without pausing the game |
+| Q, or RB on a gamepad | Undo: go back to just before your last action |
+| W, or RT on a gamepad | Go back five seconds of game time |
 
-Inspection is always on, and nothing is drawn over the game until you hover something: the controls are in the launcher window rather than on screen. The system pointer stays visible, including when moving between the game and the preview window, because it is what you aim with.
+Inspection is always on, and nothing is drawn over the game until you hover something, apart from a short note when an undo has nothing to go back to or could not land exactly: the controls are in the launcher window rather than on screen. The system pointer stays visible, including when moving between the game and the preview window, because it is what you aim with.
 
-The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout or use Ctrl + O. Chests have a small hover underline instead of persistent bounding boxes.
+The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout, or hold Ctrl with O, Q or W. Chests have a small hover underline instead of persistent bounding boxes.
 
 Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
+
+## Undo
+
+Q, or RB on a gamepad, takes back your last action: a jump, picking something up or throwing it, or setting off from standing still. Press it again to go back one more. Turning round while you are already moving is part of the same action, and a key you are still holding when you undo does not count as a new one. Rooms you jumped into or walked out of are undone along with the action. W, or RT, goes back five seconds of game time instead. They work in the game window and in the separate preview window, but not from the pause menu, and say so when there is nothing to go back to. None of the four is one of the game's own controls unless you make it one; if you do, in the game's control settings, it stays that control and does not undo.
+
+Undo reaches back to the start of the level, or to the last time you chose Restart yourself; leaving the level forgets it. The game cannot store a moment and return to it, so an undo restarts the level and replays everything you did up to the chosen moment, all in one frame. That takes longer the longer you have been in the level: about 30 ms for three minutes of busy play. The replay is silent, and every sound still playing when you undo stops, including a voice line you return to the middle of. Nothing you already unlocked or counted in Steam is counted again. Like any room change, an undo closes an open preview.
 
 ## What is rendered
 
@@ -92,6 +100,7 @@ Your progress is your own Steam progress, and the mod only adds to it what the g
 - `src/room_art.cpp`, `src/asset_mesh.cpp`, `src/particle_sim.cpp`: resource-based fallback.
 - `src/preview_window.cpp`: the separate Win32 preview window.
 - `src/save_store.cpp`: the file-backed stand-in for Steam Cloud storage, and the Steam import.
+- `src/rewind.cpp`, `src/play_record.cpp`: undo, by recording each tick's controls and replaying them after the game's own Restart.
 
 The native path borrows read-only level metadata while owning its room stack, scene entities, and rendering resources. It isolates random-number use and room numbering. The normal game draw runs last. A failed gameplay-field audit disables native previews for that process; this bounded audit is not a proof that every engine field is unchanged.
 

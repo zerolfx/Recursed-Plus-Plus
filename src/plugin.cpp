@@ -19,6 +19,7 @@
 #include "native_render.h"
 #include "support_folder.h"
 #include "save_store.h"
+#include "rewind.h"
 
 static HMODULE selfModule;
 static uintptr_t gameBase;
@@ -177,6 +178,30 @@ static bool __cdecl keyHook(int key){
     }
     return originalIsKeyPressed(key)||(bufferedTestInput&&key>=0&&key<128&&GetTickCount64()<keyUntil[key]);
 }
+// Q undoes the last action and W goes back five seconds, unless the player has made either one
+// of the game's own controls, in which case it stays that control.
+static void undoKey(int key){
+    static bool said[2]{};const bool seconds=key==22;
+    if(peek::gameBindsKey(key)){if(!said[seconds]){said[seconds]=true;log("%c is one of the game's controls here, so it does not undo",seconds?'W':'Q');}return;}
+    peek::requestRewind(seconds?peek::Rewind::Seconds:peek::Rewind::Action);
+}
+// On a gamepad RB undoes and RT goes back five seconds, on the same terms. RT is where the Xbox
+// driver reports it through the Windows joystick API that SFML reads: the Z axis, below centre.
+using JoystickConnected=bool(__cdecl*)(unsigned);
+using JoystickButton=bool(__cdecl*)(unsigned,unsigned);
+using JoystickAxis=float(__cdecl*)(unsigned,int);
+static JoystickConnected joystickConnected;
+static JoystickButton joystickButton;
+static JoystickAxis joystickAxis;
+static void pollGamepadUndo(){
+    if(!joystickConnected||!joystickButton||!joystickAxis)return;
+    static bool wasBumper=false,wasTrigger=false;bool bumper=false,trigger=false;
+    for(unsigned j=0;j<8;j++)if(joystickConnected(j)){bumper|=joystickButton(j,5);trigger|=joystickAxis(j,2)<-64;}
+    const bool ours=GetForegroundWindow()==gameWindow||peek::previewWindowFocused();
+    if(ours&&bumper&&!wasBumper&&!peek::gameBindsButton(5))peek::requestRewind(peek::Rewind::Action);
+    if(ours&&trigger&&!wasTrigger&&!peek::gameBindsAxis(2,true))peek::requestRewind(peek::Rewind::Seconds);
+    wasBumper=bumper;wasTrigger=trigger;
+}
 static bool __fastcall pollEventHook(void* window,void*,void* event){
     bool result=originalPollEvent(window,event);if(!result)return false;
     int* e=(int*)event;
@@ -195,6 +220,9 @@ static bool __fastcall pollEventHook(void* window,void*,void* event){
         if(key==36&&(suppressEscape||nativeTest||pinned||!previewPath.empty())){queuedClose=true;suppressEscape=escapeSwallowed=true;memset(keyUntil,0,sizeof keyUntil);return pollEventHook(window,nullptr,event);}
         if(key==91&&developerMode)queuedNative=true; // F7: original-renderer diagnostic, development runs only
         if(key==59)queuedBack=true;   // Backspace
+        if(key==16||key==22)undoKey(key);   // Q, W
+        // F8: replay everything and compare. Shift+F8 is the game's own normal-speed key.
+        if(key==92&&developerMode&&!((const char*)event)[10])peek::requestRewind(peek::Rewind::Verify);
     }
     // Mouse buttons: the two side buttons walk the preview history the way they walk a browser's.
     if(e[0]==9){
@@ -320,6 +348,9 @@ static float heldLeft,heldTop,heldRight,heldBottom;
 static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool open,bool close){
     auto action=peek::pumpPreviewWindow();
     if(action.action!=peek::PreviewAction::None)log("Preview window action=%d depth=%zu",(int)action.action,previewPath.size());
+    // Undo belongs to the game, but the separate window takes the keys while it has the focus.
+    if(action.action==peek::PreviewAction::Undo)undoKey(16);
+    if(action.action==peek::PreviewAction::UndoSeconds)undoKey(22);
     float u=std::max(1.0f,viewH/750.0f),cell=std::min(viewW/20,viewH/15);
     float left=(viewW-cell*20)*.5f,top=(viewH-cell*15)*.5f;
     // A pinned inset is opaque to the pointer: the game chests it covers are not hovered through it.
@@ -469,6 +500,11 @@ static void drawOverlay(){
     // printed in the launcher window, and a permanent banner reciting them is not gameplay.
     vertices.clear();
     drawPreview(mouse,clicked,backed,went,open,close);clickPopout=false;
+    // A rewind that worked shows itself. One that could not do what was asked says so, briefly.
+    if(auto said=peek::rewindNotice(GetTickCount64());!said.empty()){
+        float u=std::max(1.0f,viewH/750.0f),w=said.size()*9.6f*u+24*u;
+        rect((viewW-w)*.5f,16*u,w,36*u,.045f,.06f,.1f);text((viewW-w)*.5f+12*u,27*u,said,1.6f*u);
+    }
     GLint oldRowLength,oldSkipRows,oldSkipPixels;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&oldRowLength);glGetIntegerv(GL_UNPACK_SKIP_ROWS,&oldSkipRows);glGetIntegerv(GL_UNPACK_SKIP_PIXELS,&oldSkipPixels);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);glPixelStorei(GL_UNPACK_SKIP_ROWS,0);glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
     GLint oldActiveTexture,oldTexture,oldUnpack,oldPBO;glGetIntegerv(0x84E0,&oldActiveTexture);ActiveTexture(0x84C0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&oldTexture);glGetIntegerv(GL_UNPACK_ALIGNMENT,&oldUnpack);glGetIntegerv(0x88EF,&oldPBO);BindBuffer(0x88EC,0);glPixelStorei(GL_UNPACK_ALIGNMENT,4);
     if(!artTexture){glGenTextures(1,&artTexture);glBindTexture(GL_TEXTURE_2D,artTexture);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,0x812F);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,0x812F);unsigned int pixel=0xffffffff;glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,1,1,0,0x80E1,GL_UNSIGNED_BYTE,&pixel);}glBindTexture(GL_TEXTURE_2D,artTexture);
@@ -480,7 +516,7 @@ static void drawOverlay(){
     BindVertexArray(oldVAO);BindBuffer(0x8892,oldBuffer);UseProgram(oldProgram);BindFramebuffer(0x8CA9,oldDrawFBO);glViewport(oldViewport[0],oldViewport[1],oldViewport[2],oldViewport[3]);glColorMask(oldColor[0],oldColor[1],oldColor[2],oldColor[3]);for(int i=0;i<6;i++)if(states[i])glEnable(caps[i]);
     glBindTexture(GL_TEXTURE_2D,oldTexture);glPixelStorei(GL_UNPACK_ALIGNMENT,oldUnpack);glPixelStorei(GL_UNPACK_ROW_LENGTH,oldRowLength);glPixelStorei(GL_UNPACK_SKIP_ROWS,oldSkipRows);glPixelStorei(GL_UNPACK_SKIP_PIXELS,oldSkipPixels);BindBuffer(0x88EC,oldPBO);ActiveTexture(oldActiveTexture);
 }
-static void __fastcall displayHook(void* window,void*){frame++;if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();syncCursorVisibility(window);originalDisplay(window);chests.clear();}
+static void __fastcall displayHook(void* window,void*){frame++;pollGamepadUndo();if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();syncCursorVisibility(window);originalDisplay(window);chests.clear();}
 extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     gameBase=(uintptr_t)GetModuleHandleW(nullptr);
     // Not beside the DLL: a download extracted into Program Files cannot write there, and the
@@ -516,6 +552,13 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(!patchPointer((void**)address(0x47af24),(void*)exitTransformHook,(void**)&originalExitTransform))return 0;
     if(!patchPointer((void**)address(0x47ad80),(void*)chestTransformHook,(void**)&originalChestTransform)||!hookRoomBuilder()){log("Game hooks failed");return 0;}
     if(!peek::installNativeRender(gameBase)){log("Native renderer signature mismatch");return 0;}
+    // Rewind is an addition on top of the preview, so a build it does not recognise keeps the rest.
+    if(!peek::installRewind(gameBase,log))log("Rewind hooks unavailable; undo is off");
+    if(auto sfmlWindow=GetModuleHandleW(L"sfml-window-2.dll")){
+        joystickConnected=(JoystickConnected)GetProcAddress(sfmlWindow,"?isConnected@Joystick@sf@@SA_NI@Z");
+        joystickButton=(JoystickButton)GetProcAddress(sfmlWindow,"?isButtonPressed@Joystick@sf@@SA_NII@Z");
+        joystickAxis=(JoystickAxis)GetProcAddress(sfmlWindow,"?getAxisPosition@Joystick@sf@@SAMIW4Axis@12@@Z");
+    }
     if(!hookImport("sfml-window-2.dll","?display@Window@sf@@QAEXXZ",(void*)displayHook,(void**)&originalDisplay)){log("Display import missing");return 0;}
     log("Initialized base=%p profile=%s saves=%ls steam=%s",(void*)gameBase,profilePath,saveFiles.folder.c_str(),steamAsked?"requested":"isolated");return 1;
 }

@@ -71,6 +71,7 @@ console launcher set and the window launcher clears, so a player never reaches t
 | Input | Action |
 | --- | --- |
 | F7 | Redraw the active room with the original renderer, not a chest destination |
+| F8 | Restart the level and replay every recorded tick, comparing each with the recording; the log says whether they all matched and how long it took |
 
 `RECURSED_PEEK_TEST_INPUT=1` buffers short SFML key events, which is what lets an automated test drive
 the game with posted key messages; it also turns on the cursor diagnostics in the log. The window

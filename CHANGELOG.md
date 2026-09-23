@@ -3,6 +3,19 @@
 What changed for someone playing with this mod, newest first. Dates are the day the change
 landed. Entries describe the behaviour, not the patch.
 
+## Unreleased
+
+### Added
+
+- Undo. Q, or RB on a gamepad, takes back your last action, whether a jump, picking something
+  up or throwing it, or setting off from standing still, and pressing it again goes back one
+  more. W, or RT, goes back five seconds of game time. Undo reaches back to the start of the
+  level or to your last Restart, across any rooms you went in or out of on the way. Going back
+  happens at once and silently: every sound still playing stops, and nothing already counted in
+  Steam is counted again. Like any room change, it closes an open preview. With nothing to go
+  back to, the game says so. A key or button you have made one of the game's own controls stays
+  that control and does not undo.
+
 ## 1.1.0 - 2026-09-23
 
 ### Fixed

@@ -2,7 +2,7 @@
 #include <windows.h>
 #include "room_art.h"
 namespace peek {
-enum class PreviewAction {None,Close,Back,Forward,Dock,Select};
+enum class PreviewAction {None,Close,Back,Forward,Dock,Select,Undo,UndoSeconds};
 // view names what the window was showing when the object was clicked.
 struct WindowAction {PreviewAction action=PreviewAction::None;Object object{};std::string view;};
 bool showPreviewWindow(HWND owner);

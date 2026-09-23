@@ -30,7 +30,7 @@ try {
     $gui = [IO.File]::ReadAllText((Join-Path $projectRoot 'src/gui_launcher.cpp'))
     if ($gui -match 'L"recursed_peek\.dll"') { throw 'src/gui_launcher.cpp names a DLL beside the launcher; it must run the copy embedded in the executable.' }
     $plugin = [IO.File]::ReadAllText((Join-Path $projectRoot 'src/plugin.cpp'))
-    foreach ($line in ($plugin -split "`n" | Where-Object { $_ -match 'queuedNative\s*=\s*true' })) {
+    foreach ($line in ($plugin -split "`n" | Where-Object { $_ -match 'queuedNative\s*=\s*true|Rewind::Verify' })) {
         if ($line -notmatch 'developerMode') { throw "A developer diagnostic is reachable without the developer flag: $($line.Trim())" }
     }
     $readme = [IO.File]::ReadAllText((Join-Path $projectRoot 'README.md'))

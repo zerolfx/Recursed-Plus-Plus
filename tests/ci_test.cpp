@@ -3,6 +3,7 @@
 #include "../src/particle_sim.h"
 #include "../src/save_store.h"
 #include "../src/steam_scan.h"
+#include "../src/play_record.h"
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -63,6 +64,32 @@ int main(){
  assert(!a.empty()&&!b.empty()&&a.size()==same.size()&&a.size()<=8);
  assert(a[0].position.y==same[0].position.y&&a[0].position.y!=b[0].position.y);
  for(auto& p:b)assert(std::isfinite(p.position.y)&&p.alpha>=0&&p.alpha<=1);
+ // Undo lands just before the latest action: a jump or a use, or a move started from rest.
+ {using namespace peek;auto press=[](std::initializer_list<Control> cs){uint16_t v=0;for(auto c:cs)v|=1u<<c;return v;};
+  std::vector<PlayTick> ticks(40,PlayTick{0,1.f/60,0});
+  for(int t=5;t<20;t++)ticks[t].controls=press({ControlRight});   // walk from rest: an action at 5
+  for(int t=12;t<20;t++)ticks[t].controls=press({ControlLeft});   // turning while moving is the same action
+  ticks[15].controls|=press({ControlJump});                        // a jump is its own action at 15
+  ticks[16].controls|=press({ControlJump});
+  ticks[30].controls=press({ControlUse});                          // a use at 30, from rest
+  auto chain=[](std::vector<PlayTick>& ts){for(size_t t=1;t<ts.size();t++)ts[t].heldBefore=(uint8_t)ts[t-1].controls;};
+  chain(ticks);
+  assert(startsAction(0,press({ControlRight}))&&!startsAction(press({ControlRight}),press({ControlLeft})));
+  assert(startsAction(press({ControlRight}),press({ControlRight,ControlJump}))&&!startsAction(press({ControlJump}),press({ControlJump})));
+  assert(!startsAction(0,press({ControlPause}))&&!startsAction(press({ControlUse}),0));
+  assert(beforeLastAction(ticks,40)==30&&beforeLastAction(ticks,30)==15&&beforeLastAction(ticks,15)==5);
+  // Before the first action there is nothing to undo, which the answer says by not moving.
+  assert(beforeLastAction(ticks,5)==5&&beforeLastAction(ticks,31)==30&&beforeLastAction({},0)==0);
+  // Seconds count the steps the game took, so a run at a different step rate goes back as far.
+  assert(secondsBefore(ticks,40,1.f/6)==30&&secondsBefore(ticks,40,10)==0&&secondsBefore(ticks,20,0)==19);
+  // Undo to just before the jump at 15 while Left and Jump are still held. Play resumes measured
+  // against what was held when the undo was asked for, so the held Jump is not a new jump and
+  // the next undo reaches the walk's start at 5 rather than landing on 15 again.
+  const auto both=press({ControlLeft,ControlJump});
+  auto resumed=ticks;resumed.resize(15);
+  for(int t=15;t<21;t++)resumed.push_back(PlayTick{both,1.f/60,0,(uint8_t)both});
+  assert(beforeLastAction(resumed,21)==5);
+ }
  // Steam has written two shapes of library file over the years and both are still out there.
  auto flat=peek::parseLibraryFolders("\"LibraryFolders\"\n{\n\t\"TimeNextStatsReport\"\t\"1\"\n\t\"1\"\t\"D:\\\\SteamLibrary\"\n\t\"2\"\t\"E:\\\\Games\\\\Steam\"\n}\n");
  assert(flat.size()==2&&flat[0]=="D:\\SteamLibrary"&&flat[1]=="E:\\Games\\Steam");
@@ -109,5 +136,5 @@ int main(){
  assert(replaced==1);
  assert(!peek::importSaves(cloud.wstring(),{},folder.wstring(),error)&&!error.empty());
  fs::remove_all(folder);
- std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import\n";
+ std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import, undo targets\n";
 }
