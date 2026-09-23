@@ -43,7 +43,10 @@ static int spawn(lua_State* L){
 static bool runFile(lua_State* L,const std::filesystem::path& p,std::string& error){
  std::error_code ec;auto size=std::filesystem::file_size(p,ec);if(ec||size>1024*1024){error="Missing or oversized script";return false;}
  std::ifstream f(p,std::ios::binary);std::ostringstream text;text<<f.rdbuf();auto source=text.str();
- if(luaL_loadbufferx(L,source.data(),source.size(),p.filename().string().c_str(),"t")||lua_pcall(L,0,0,0)){
+ // The game loads the same file with luaL_loadfile, which skips a UTF-8 byte-order mark, and an
+ // editor such as Notepad writes one. A buffer load does not skip it, so it is skipped here.
+ const size_t mark=source.compare(0,3,"\xEF\xBB\xBF")==0?3:0;
+ if(luaL_loadbufferx(L,source.data()+mark,source.size()-mark,p.filename().string().c_str(),"t")||lua_pcall(L,0,0,0)){
   const char* e=lua_tostring(L,-1);error=e?e:"Lua error";lua_pop(L,1);return false;
  }return true;
 }

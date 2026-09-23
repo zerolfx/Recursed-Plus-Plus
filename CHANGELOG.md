@@ -3,6 +3,13 @@
 What changed for someone playing with this mod, newest first. Dates are the day the change
 landed. Entries describe the behaviour, not the patch.
 
+## Unreleased
+
+### Fixed
+
+- Rooms from a mission file saved with a byte-order mark, which Notepad adds, can be previewed.
+  The game always read such a file, but every preview of it said "Preview unavailable".
+
 ## 1.0.0 - 2026-09-22
 
 ### Fixed

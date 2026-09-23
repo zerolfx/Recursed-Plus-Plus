@@ -37,6 +37,13 @@ int main(){
  auto dry=peek::loadSnapshot(root,"missions/test","start",false);
  auto wet=peek::loadSnapshot(root,"missions/test","start",true);
  assert(dry.error.empty()&&wet.error.empty());
+ // A mission saved with a UTF-8 byte-order mark loads here as it does in the game.
+ {namespace fs=std::filesystem;const auto marked=fs::temp_directory_path()/"recursed-peek-bom";fs::remove_all(marked);
+  fs::create_directories(marked/"custom"/"missions");fs::create_directories(marked/"data"/"tiles");
+  fs::copy_file(fs::path(root)/"data"/"tiles"/"test.lua",marked/"data"/"tiles"/"test.lua");
+  {std::ifstream in(fs::path(root)/"custom"/"missions"/"test.lua",std::ios::binary);std::ofstream out(marked/"custom"/"missions"/"marked.lua",std::ios::binary);out<<"\xEF\xBB\xBF"<<in.rdbuf();}
+  auto withMark=peek::loadSnapshot(marked.string(),"missions/marked","start",false);
+  assert(withMark.error.empty()&&withMark.objects.size()==dry.objects.size());fs::remove_all(marked);}
  assert(dry.objects.size()==3&&dry.objects[1].target=="start"&&dry.hasGlobals);
  assert(dry.tiles[3*20+2].kind==1&&dry.tiles[3*20+2].frame==7&&dry.tiles[3*20+2].definition=="floor");
  assert(!peek::wetAt(dry,2,2)&&peek::wetAt(wet,2,2));
