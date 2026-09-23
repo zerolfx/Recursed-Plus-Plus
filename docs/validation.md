@@ -164,7 +164,16 @@ Checked on 2026-09-23 against the runtime copy, isolated from Steam, in Preview 
 - Q after a jump and a walk went back before the walk, and Q again before the jump; W with under five seconds played went back to the start of the level.
 - With Right still held through an undo, the next Q went back past the walk that resumed, rather than returning to the same moment. Two Q presses made inside the pause menu did nothing when play resumed.
 - With the profile's `controls` setting binding Q to Jump, in the game's own comma-separated format, Q jumped and did not undo, and the log said why; W still went back. The profile's `recursed.ini` was copied aside first and restored afterwards, hash unchanged.
-- Not exercised: RB and RT, since no gamepad was attached; Q and W forwarded from the separate preview window, which needs a pointer over a chest to open it; and the crux hum after an undo in its own room, since the captures have no sound.
+- Not exercised: Q and W forwarded from the separate preview window, which needs a pointer over a chest to open it; and the crux hum after an undo in its own room, since the captures have no sound.
+
+### Gamepad
+
+Checked on 2026-09-23 by the player with an Xbox Wireless Controller over Bluetooth (045E:0B22), in the isolated runtime.
+
+- RB and RT did nothing for the player in the first undo build, which read them once per drawn frame and checked the foreground window itself; why was not pinned down. They are now read in the game's own input poll, which runs only while the game window has the focus, and the log records the first changes each controller reports. With the controller connected before start, the log showed button 5 for RB, followed by an undo, and the Z axis below centre for RT, followed by a five-second rewind.
+- Started with the controller off, the game found nothing; switching it on logged the controller and "Gamepad lists rebuilt: 7 axes, 16 buttons", after which the stick moved the player, A jumped and RB undid, replaying 1439 ticks in 1.7 ms. Before this change the game ignored a controller connected after start.
+- A small window reading winmm while in front, before any of this, gave the mapping: RB button 5, LB button 4, A button 0, RT Z down to 128, LT Z up to 65408. Opened with the controller off, it saw the controller 5.6 s later when it was switched on, without being asked to re-enumerate.
+- Not exercised: disconnecting the controller during play, and a second controller.
 
 The digests cover positions, velocities, contact bits, the player's move state, the held item and a few kind-specific fields, never a heap pointer. They are not a proof that every field matches, only that nothing they cover ever differed.
 

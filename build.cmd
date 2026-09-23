@@ -25,7 +25,7 @@ if not exist build\lua52.lib (
   lib /nologo /OUT:..\lua52.lib !taskLuaObjects!
   popd
 )
-cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /Zi /DWIN32_LEAN_AND_MEAN /DNOMINMAX /Ivendor\lua-5.2.4\src /LD src\plugin.cpp src\snapshot.cpp src\runtime_state.cpp src\preview_window.cpp src\room_art.cpp src\asset_mesh.cpp src\particle_sim.cpp src\native_render.cpp src\native_scene.cpp src\rewind.cpp src\play_record.cpp src\support_folder.cpp src\save_store.cpp /Fobuild\ /Febuild\recursed_peek.dll /link /DEF:src\plugin.def build\lua52.lib opengl32.lib user32.lib gdi32.lib gdiplus.lib shell32.lib ole32.lib
+cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /Zi /DWIN32_LEAN_AND_MEAN /DNOMINMAX /Ivendor\lua-5.2.4\src /LD src\plugin.cpp src\snapshot.cpp src\runtime_state.cpp src\preview_window.cpp src\room_art.cpp src\asset_mesh.cpp src\particle_sim.cpp src\native_render.cpp src\native_scene.cpp src\rewind.cpp src\play_record.cpp src\gamepad.cpp src\support_folder.cpp src\save_store.cpp /Fobuild\ /Febuild\recursed_peek.dll /link /DEF:src\plugin.def build\lua52.lib opengl32.lib user32.lib gdi32.lib gdiplus.lib shell32.lib ole32.lib winmm.lib
 if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /W4 /EHsc /MT /O2 /Zi /DWIN32_LEAN_AND_MEAN /DNOMINMAX src\launcher.cpp src\game_launch.cpp src\support_folder.cpp /Fobuild\ /Febuild\recursed_peek.exe /link bcrypt.lib shell32.lib ole32.lib user32.lib
 if errorlevel 1 exit /b 1

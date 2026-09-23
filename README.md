@@ -54,6 +54,8 @@ The launcher's **Advanced** page holds the rest, for the times you want the mod 
 
 Inspection is always on, and nothing is drawn over the game until you hover something, apart from a short note when an undo has nothing to go back to or could not land exactly: the controls are in the launcher window rather than on screen. The system pointer stays visible, including when moving between the game and the preview window, because it is what you aim with.
 
+A gamepad can be connected or switched on at any time, including after the game has started; the game on its own only looks for one when it starts.
+
 The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout, or hold Ctrl with O, Q or W. Chests have a small hover underline instead of persistent bounding boxes.
 
 Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
@@ -101,6 +103,7 @@ Your progress is your own Steam progress, and the mod only adds to it what the g
 - `src/preview_window.cpp`: the separate Win32 preview window.
 - `src/save_store.cpp`: the file-backed stand-in for Steam Cloud storage, and the Steam import.
 - `src/rewind.cpp`, `src/play_record.cpp`: undo, by recording each tick's controls and replaying them after the game's own Restart.
+- `src/gamepad.cpp`: controllers connected after start, and the gamepad's undo buttons.
 
 The native path borrows read-only level metadata while owning its room stack, scene entities, and rendering resources. It isolates random-number use and room numbering. The normal game draw runs last. A failed gameplay-field audit disables native previews for that process; this bounded audit is not a proof that every engine field is unchanged.
 

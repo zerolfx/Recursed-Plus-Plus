@@ -16,6 +16,12 @@ landed. Entries describe the behaviour, not the patch.
   back to, the game says so. A key or button you have made one of the game's own controls stays
   that control and does not undo.
 
+### Fixed
+
+- A gamepad connected after the game has started now works. The game only ever looked for
+  controllers once, when it started, so one plugged in or switched on later did nothing until
+  the game was restarted; now it is picked up as soon as it connects, with the same controls.
+
 ## 1.1.0 - 2026-09-23
 
 ### Fixed

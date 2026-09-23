@@ -20,6 +20,7 @@
 #include "support_folder.h"
 #include "save_store.h"
 #include "rewind.h"
+#include "gamepad.h"
 
 static HMODULE selfModule;
 static uintptr_t gameBase;
@@ -184,23 +185,6 @@ static void undoKey(int key){
     static bool said[2]{};const bool seconds=key==22;
     if(peek::gameBindsKey(key)){if(!said[seconds]){said[seconds]=true;log("%c is one of the game's controls here, so it does not undo",seconds?'W':'Q');}return;}
     peek::requestRewind(seconds?peek::Rewind::Seconds:peek::Rewind::Action);
-}
-// On a gamepad RB undoes and RT goes back five seconds, on the same terms. RT is where the Xbox
-// driver reports it through the Windows joystick API that SFML reads: the Z axis, below centre.
-using JoystickConnected=bool(__cdecl*)(unsigned);
-using JoystickButton=bool(__cdecl*)(unsigned,unsigned);
-using JoystickAxis=float(__cdecl*)(unsigned,int);
-static JoystickConnected joystickConnected;
-static JoystickButton joystickButton;
-static JoystickAxis joystickAxis;
-static void pollGamepadUndo(){
-    if(!joystickConnected||!joystickButton||!joystickAxis)return;
-    static bool wasBumper=false,wasTrigger=false;bool bumper=false,trigger=false;
-    for(unsigned j=0;j<8;j++)if(joystickConnected(j)){bumper|=joystickButton(j,5);trigger|=joystickAxis(j,2)<-64;}
-    const bool ours=GetForegroundWindow()==gameWindow||peek::previewWindowFocused();
-    if(ours&&bumper&&!wasBumper&&!peek::gameBindsButton(5))peek::requestRewind(peek::Rewind::Action);
-    if(ours&&trigger&&!wasTrigger&&!peek::gameBindsAxis(2,true))peek::requestRewind(peek::Rewind::Seconds);
-    wasBumper=bumper;wasTrigger=trigger;
 }
 static bool __fastcall pollEventHook(void* window,void*,void* event){
     bool result=originalPollEvent(window,event);if(!result)return false;
@@ -516,7 +500,7 @@ static void drawOverlay(){
     BindVertexArray(oldVAO);BindBuffer(0x8892,oldBuffer);UseProgram(oldProgram);BindFramebuffer(0x8CA9,oldDrawFBO);glViewport(oldViewport[0],oldViewport[1],oldViewport[2],oldViewport[3]);glColorMask(oldColor[0],oldColor[1],oldColor[2],oldColor[3]);for(int i=0;i<6;i++)if(states[i])glEnable(caps[i]);
     glBindTexture(GL_TEXTURE_2D,oldTexture);glPixelStorei(GL_UNPACK_ALIGNMENT,oldUnpack);glPixelStorei(GL_UNPACK_ROW_LENGTH,oldRowLength);glPixelStorei(GL_UNPACK_SKIP_ROWS,oldSkipRows);glPixelStorei(GL_UNPACK_SKIP_PIXELS,oldSkipPixels);BindBuffer(0x88EC,oldPBO);ActiveTexture(oldActiveTexture);
 }
-static void __fastcall displayHook(void* window,void*){frame++;pollGamepadUndo();if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();syncCursorVisibility(window);originalDisplay(window);chests.clear();}
+static void __fastcall displayHook(void* window,void*){frame++;if(frame<5)log("display frame=%llu this=%p original=%p",frame,window,(void*)originalDisplay);if(frame%300==0&&!chests.empty()){for(const auto& c:chests)log("Chest %p %0.2f,%0.2f room=%s",(void*)c.id,c.x,c.y,c.room.c_str());}drawOverlay();syncCursorVisibility(window);originalDisplay(window);chests.clear();}
 extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     gameBase=(uintptr_t)GetModuleHandleW(nullptr);
     // Not beside the DLL: a download extracted into Program Files cannot write there, and the
@@ -554,11 +538,8 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(!peek::installNativeRender(gameBase)){log("Native renderer signature mismatch");return 0;}
     // Rewind is an addition on top of the preview, so a build it does not recognise keeps the rest.
     if(!peek::installRewind(gameBase,log))log("Rewind hooks unavailable; undo is off");
-    if(auto sfmlWindow=GetModuleHandleW(L"sfml-window-2.dll")){
-        joystickConnected=(JoystickConnected)GetProcAddress(sfmlWindow,"?isConnected@Joystick@sf@@SA_NI@Z");
-        joystickButton=(JoystickButton)GetProcAddress(sfmlWindow,"?isButtonPressed@Joystick@sf@@SA_NII@Z");
-        joystickAxis=(JoystickAxis)GetProcAddress(sfmlWindow,"?getAxisPosition@Joystick@sf@@SAMIW4Axis@12@@Z");
-    }
+    if(!peek::installGamepad(gameBase,log))log("Gamepad hook unavailable; controllers connected later and gamepad undo are off");
+
     if(!hookImport("sfml-window-2.dll","?display@Window@sf@@QAEXXZ",(void*)displayHook,(void**)&originalDisplay)){log("Display import missing");return 0;}
     log("Initialized base=%p profile=%s saves=%ls steam=%s",(void*)gameBase,profilePath,saveFiles.folder.c_str(),steamAsked?"requested":"isolated");return 1;
 }
