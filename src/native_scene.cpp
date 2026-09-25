@@ -93,7 +93,8 @@ static bool entity(const Object& o,bool settle){
  auto e=(uintptr_t)p;at<float>(e,8)=o.x;at<float>(e,12)=o.y;at<unsigned char>(e,0x45)=o.global?1:0;
  // Match Host::spawn (0x4409A0) and global restore (0x440CD0):
  // eligible bodies get 20 collision-aware downward moves of 0.05 tiles.
- // Existing outer-room instances must retain their exact captured positions.
+ // Existing outer-room instances must retain their exact captured positions, all but the
+ // globals such a room takes back when it is returned to, which come after them as they do there.
  using Add=bool(__thiscall*)(void*,void*,bool);
  bool accepted=fn<Add>(0x41c130)((void*)room,p,settle&&(at<uint32_t>(e,0x34)&0x21)!=0);
  if(!accepted&&settle){
@@ -131,9 +132,15 @@ bool prepareNativeScene(uintptr_t liveHost,const Snapshot& s,const std::string& 
  if(depth<1||depth>8||s.objects.size()>2048){error="Scene exceeds preview limits";return false;}
  Native probe{};for(const auto& o:s.objects)if(!nativeEntity(o.kind,probe)){error="Native scene does not yet support "+o.kind;return false;}
  std::array<int,300> indices{};for(size_t i=0;i<300;i++){indices[i]=s.live?s.tiles[i].nativeIndex:tileIndex(liveHost,s.tiles[i]);if(indices[i]<0||indices[i]>4096){error="Native tile definition missing: "+s.tiles[i].definition;return false;}}
- std::ostringstream stamp;stamp.precision(9);stamp<<liveHost<<'|'<<key<<'|'<<depth<<'|'<<s.nativeDepth<<'|'<<s.live;for(size_t i=0;i<300;i++)stamp<<','<<s.tiles[i].kind<<':'<<indices[i];for(const auto& o:s.objects)stamp<<'|'<<o.kind<<o.target<<o.x<<','<<o.y<<o.global<<':'<<o.sourceId;
+ // The renderer takes its colours from host+0x84, the timeline being played (0x43FBC0, 0x43FC50).
+ // Only a name that fits in the string's own buffer can be written into the private copy.
+ if(s.timeline.size()>15){error="Timeline name too long";return false;}
+ std::ostringstream stamp;stamp.precision(9);stamp<<liveHost<<'|'<<key<<'|'<<depth<<'|'<<s.nativeDepth<<'|'<<s.live<<'|'<<s.timeline;for(size_t i=0;i<300;i++)stamp<<','<<s.tiles[i].kind<<':'<<indices[i];for(const auto& o:s.objects)stamp<<'|'<<o.kind<<o.target<<o.x<<','<<o.y<<o.global<<o.settle<<':'<<o.sourceId;
  if(room&&renderer&&signature==stamp.str())return true;
  clearNativeScene();source=liveHost;signature=stamp.str();memcpy(host.data(),(void*)liveHost,host.size());
+ // Replacing the copy's string drops its pointer to any heap buffer without freeing it: the
+ // live host still owns that buffer, and this copy is never destroyed.
+ if(!s.timeline.empty()){auto name=host.data()+0x84;memset(name,0,16);memcpy(name,s.timeline.data(),s.timeline.size());at<uint32_t>((uintptr_t)name,16)=(uint32_t)s.timeline.size();at<uint32_t>((uintptr_t)name,20)=15;}
  auto begin=at<uintptr_t>(liveHost,0x54),end=at<uintptr_t>(liveHost,0x58);if(end<=begin||end-begin>28*4096){error="Invalid source room stack";return false;}
  // Only metadata strings/maps are borrowed. The renderer never owns or destroys this host copy.
  int count=(end-begin)/28;int desired=s.nativeDepth>=0?s.nativeDepth+1:count+depth;
@@ -152,7 +159,7 @@ bool prepareNativeScene(uintptr_t liveHost,const Snapshot& s,const std::string& 
  // preview must not be able to move a gameplay counter at all: restore it the way the room
  // serial above is restored.
  auto jarNames=base+0x8a050;auto jarSerial=at<uint32_t>(jarNames);
- for(const auto& o:s.objects)if(!entity(o,!s.live)){at<uint32_t>(jarNames)=jarSerial;error="Entity allocation failed";clearNativeScene();return false;}
+ for(const auto& o:s.objects)if(!entity(o,!s.live||o.settle)){at<uint32_t>(jarNames)=jarSerial;error="Entity allocation failed";clearNativeScene();return false;}
  at<uint32_t>(jarNames)=jarSerial;
  using RendererCtor=void(__thiscall*)(void*,void*);fn<RendererCtor>(0x4335d0)(&renderer,host.data());
  return renderer!=0;

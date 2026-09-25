@@ -52,7 +52,7 @@ static bool runFile(lua_State* L,const std::filesystem::path& p,std::string& err
 }
 static bool safeRelative(const std::string& s){if(s.empty()||s.size()>240)return false;auto p=std::filesystem::path(s);if(p.is_absolute()||p.has_root_name())return false;for(auto& part:p)if(part=="..")return false;return true;}
 }
-Snapshot loadSnapshot(const std::string& root,const std::string& mission,const std::string& room,bool wet){
+Snapshot loadSnapshot(const std::string& root,const std::string& mission,const std::string& room,bool wet,const std::string& timeline,bool emptyWhenMissing){
  State state;Budget budget;
  if(!safeRelative(mission)||room.empty()||room.size()>128){state.result.error="Invalid preview target";return state.result;}
  lua_State* L=lua_newstate(alloc,&budget);if(!L){state.result.error="Preview allocation failed";return state.result;}
@@ -75,7 +75,18 @@ Snapshot loadSnapshot(const std::string& root,const std::string& mission,const s
  if(!safeRelative(tilePath)){state.result.error="Invalid tileset";lua_close(L);return state.result;}
  state.result.tileset=tilePath;
  lua_getglobal(L,"pattern");if(lua_isstring(L,-1)){std::string p=lua_tostring(L,-1);if(safeRelative(p))state.result.pattern=p;}lua_pop(L,1);
- for(auto field:{"dark","light"}){lua_getglobal(L,field);if(lua_istable(L,-1))for(int i=0;i<3;i++){lua_rawgeti(L,-1,i+1);float v=(float)lua_tonumber(L,-1);if(std::isfinite(v))(field[0]=='d'?state.result.dark:state.result.light)[i]=std::fmax(0.f,std::fmin(1.f,v));lua_pop(L,1);}lua_pop(L,1);}
+ // Level load (0x43F2A3, 0x43F3F2) keeps one colour pair per timeline, starting from a grey
+ // "start". A table with a start entry is keyed by timeline, and any other table is the colours
+ // of "start". A colour one table leaves out of a new entry is black. The renderer looks the
+ // timeline up and, when it has no entry, uses the first name.
+ {std::map<std::string,std::array<std::array<float,3>,2>> pairs;pairs["start"]={{{.2f,.2f,.2f},{.4f,.4f,.4f}}};
+  for(int f=0;f<2;f++){lua_getglobal(L,f?"light":"dark");
+   auto read=[&](const std::string& key){auto& c=pairs[key][f];for(int i=0;i<3;i++){lua_rawgeti(L,-1,i+1);float v=(float)lua_tonumber(L,-1);c[i]=std::isfinite(v)?std::fmax(0.f,std::fmin(1.f,v)):0.f;lua_pop(L,1);}};
+   if(lua_istable(L,-1)){lua_getfield(L,-1,"start");bool keyed=!lua_isnil(L,-1);lua_pop(L,1);
+    if(!keyed)read("start");
+    else {lua_pushnil(L);while(lua_next(L,-2)){if(lua_type(L,-2)==LUA_TSTRING&&lua_istable(L,-1))read(lua_tostring(L,-2));lua_pop(L,1);}}}
+   lua_pop(L,1);}
+  auto p=pairs.find(timeline);if(p==pairs.end())p=pairs.begin();state.result.dark=p->second[0];state.result.light=p->second[1];}
  // Tileset declarations use their own environment so they cannot overwrite room functions.
  lua_State* T=lua_newstate(alloc,&budget);if(!T){state.result.error="Tileset allocation failed";lua_close(L);return state.result;}
  lua_pushlightuserdata(T,&state);lua_setfield(T,LUA_REGISTRYINDEX,"peek.context");lua_sethook(T,limit,LUA_MASKCOUNT,1000);
@@ -86,7 +97,9 @@ Snapshot loadSnapshot(const std::string& root,const std::string& mission,const s
   }lua_pop(T,1);
  }
  lua_close(T);if(!state.result.error.empty()){lua_close(L);return state.result;}
- lua_getglobal(L,room.c_str());if(!lua_isfunction(L,-1))state.result.error="Room function missing";
+ // The room builder 0x440A20 calls the function through lua_pcall and treats a failed call as a
+ // built room, so a room with no function is empty: default tiles and nothing in it.
+ lua_getglobal(L,room.c_str());if(!lua_isfunction(L,-1)){if(!emptyWhenMissing)state.result.error="Room function missing";}
  else {lua_pushboolean(L,wet);lua_pushstring(L,"");if(lua_pcall(L,2,0,0)){const char* e=lua_tostring(L,-1);state.result.error=e?e:"Room construction failed";}}
  lua_close(L);
  // Never display a partially constructed room as a successful preview.

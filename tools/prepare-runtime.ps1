@@ -12,5 +12,6 @@ if (!(Test-Path -LiteralPath $runtimePath)) {
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\peek-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\peek-lab.lua')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\state-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\state-lab.lua')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\render-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\render-lab.lua')
+Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\paradox-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\paradox-lab.lua')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\nexus.lua') -Destination (Join-Path $runtimePath 'data\nexus.lua')
 Write-Output "Isolated runtime ready: $runtimePath"

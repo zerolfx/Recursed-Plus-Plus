@@ -3,6 +3,29 @@
 What changed for someone playing with this mod, newest first. Dates are the day the change
 landed. Entries describe the behaviour, not the patch.
 
+## Unreleased
+
+### Added
+
+- A return flame that leads into a paradox now previews the paradox room. When the chest you
+  came in through is no longer in the room outside, for instance because you carried it into the
+  room it leads to and put it down, walking out takes you out of every room you were in and
+  starts you afresh in the level's paradox room. Hovering the flame used to show the room
+  outside anyway; it now shows the paradox room, marked Paradox, in its own colours and with the
+  objects it keeps from earlier visits. Picking the chest up again, or putting it back, turns the
+  preview back to the room outside, and a flame clicked inside a preview is followed the same way.
+- Rooms inside a paradox room count their depth from it, as Paradox depth 1 and deeper, since
+  the rooms you came through are left behind.
+
+### Fixed
+
+- A return flame's preview of the room outside now includes the global objects that room gets
+  back when you walk out, such as a global chest you went in through. The game puts them aside
+  while you are inside, and the preview showed the room without them.
+- Levels that colour their rooms separately, such as the ones with a paradox room, now get those
+  colours wherever the game's renderer cannot draw a preview and the stand-in drawing is used;
+  it drew their background black.
+
 ## 1.2.0 - 2026-09-23
 
 ### Added

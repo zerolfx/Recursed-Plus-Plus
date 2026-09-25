@@ -51,6 +51,27 @@ Readers use bounded container walks and read-only memory copies. Failed state re
 
 Existing ancestors are sampled by stack record, not by room name. Native tile indices come directly from their 12-byte tile entries; host +0x40 contains 20-byte tile definitions. RTTI identifies Door portals (variant byte +0x58), Surface entities (regenerated from tiles), and crystal variants (+0x54). These reads are repeated for open previews.
 
+## Exits and paradoxes
+
+Game::update `0x4199C0` drains the top room's event queue through the jump table at `0x419BF8`. A regular flame (Door, `+0x58` = 0) posts event 2 and a green one event 7; both name the held item's identity, which event 2 ignores. Event 2 runs `0x440250`: save the top's globals, destroy it (entities are detached, never deleted), pop, and restore globals into the new top and reactivate it. Event 7 runs `0x4402D0`, which stashes the room in the jar map at host+0x74 instead of destroying it and asserts that the stack is not left empty.
+
+| Address | Role |
+| --- | --- |
+| `0x4116A5`, `0x410BB2`, `0x415EA3` | Chest, cauldron and jar entry set player+0x5C, the anchor, to themselves, with the offset at +0x64 |
+| `0x41C590` / `0x41C6A0` | Deactivate clears every entity's owner; reactivate sets it back in vector order, attaching each entity as it goes |
+| `0x416EA0` | Player attach: an anchor that is not the held item and not owned by the room posts event 6 with the anchor's identity |
+| `0x440510` | Paradox: host+0x9C = 1, then `reject` when the identity starts with `chest-`, otherwise `threadless` |
+| `0x440860` | Timeline switch: the whole stack moves to host+0x7C under the timeline at host+0x84, and the target's saved stack, or a fresh room, takes its place |
+| `0x43E8CF`, `0x43EB74` | `Spawn("player")` and `Spawn("yield")` make a Door only when the room is built with another below it |
+
+So leaving stack entry i checks the Player of entry i-1. Its anchor passes when it comes ahead of the Player in that room's vector, which is where a chest's entry leaves it, or when it is a global the restore at `0x440CD0` put back first. A global chest carried into another room and put down there is saved under that room's name when it is left, so the room below never gets it back. Identities (vtable +0x18): Chest `0x411970` is `chest-` plus its target, Cauldron `0x410E30` is `cauldron-` plus its target, Jar `0x4160C0` is its own name, Key, Box, Fan and Lock return short names, and Door and Player the empty string. Only a chest, or a jar named as one, therefore leads to `reject`.
+
+`0x440510` switches to the paradox timeline, destroys whatever stack that timeline had kept, and builds the paradox room fresh and dry with `0x43FCE0`. It is the only room of its stack, so it has no flame, and it restores the globals saved under its name. The rooms left behind survive, deactivated, in host+0x7C. From then until the level is loaded again, every room built gets Room+0x94 = 2, in which a plain crystal destroys itself instead of completing the level.
+
+The room builder `0x440A20` makes `Global()` a no-op once host+0x6C has the room's name, and calls the room function through `lua_pcall` with the wet flag and the held item's identity. A failed call still counts as built, so a missing `reject` or `threadless` function leaves an empty 20×15 room whose tiles the terrain stage skips. Only a function returning exactly `false` makes `0x43FCE0` undo the entry.
+
+Level load fills host+0x38, a map of colour pairs by timeline name, with a grey `start` (dark 0.2, light 0.4) and then the Lua `dark` and `light` tables: a table with a `start` field is keyed by timeline, a new key's other colour is black, and any other table sets `start`. The renderer looks up host+0x84, the timeline being played, and falls back to the first key (`0x43FBC0`, `0x43FC50`). It reads nothing else about paradoxes: no stack name, no Room+0x94, no host+0x9C.
+
 ## Native rendering
 
 `0x419C30` prepares the current view and invokes `0x4338A0` at `0x419E18`. The render context is 0x74 bytes. Its output FBO is at +0x20, time and delta at +0x24/+0x28, with additional internal buffer handles at +0x14/+0x18/+0x1C. Binding a framebuffer alone is insufficient: the pipeline rewrites and uses its own intermediate targets.

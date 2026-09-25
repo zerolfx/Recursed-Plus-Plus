@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include "live_state_fixture.h"
+#include "exit_fixture.h"
 // The game never sees the storage object; it calls entries of the interface table Steam would
 // have handed it. Declaring the same entries in the same order here tests the offsets the game
 // actually uses, not just the code behind them.
@@ -59,6 +60,24 @@ int main(){
   assert(!bad.error.empty()&&bad.objects.empty()&&!bad.hasGlobals);
  }
  assert(!peek::loadSnapshot(root,"../outside","start",false).error.empty());
+ testExitTarget();
+ // Colours are kept per timeline once a table has a start entry; a timeline without its own
+ // entry takes the first name's, and a colour one table leaves out is zero.
+ {auto colours=[](const peek::Snapshot& s,std::array<float,3> dark,std::array<float,3> light){for(int i=0;i<3;i++)if(std::fabs(s.dark[i]-dark[i])>1e-6f||std::fabs(s.light[i]-light[i])>1e-6f)return false;return true;};
+  auto first=peek::loadSnapshot(root,"missions/timelines","start",false);
+  assert(first.error.empty()&&colours(first,{.1f,.2f,.3f},{.2f,.3f,.4f}));
+  assert(colours(peek::loadSnapshot(root,"missions/timelines","start",false,"reject"),{.4f,.5f,.6f},{.7f,.8f,.9f}));
+  assert(colours(peek::loadSnapshot(root,"missions/timelines","start",false,"threadless"),{1,0,0},{0,0,0}));
+  assert(colours(peek::loadSnapshot(root,"missions/timelines","start",false,"elsewhere"),{.4f,.5f,.6f},{.7f,.8f,.9f}));
+  // Without a colour table a level keeps the game's grey.
+  assert(colours(dry,{.2f,.2f,.2f},{.4f,.4f,.4f}));
+  // A paradox room the script leaves out is built empty, in its timeline's colours.
+  auto rejected=peek::loadSnapshot(root,"missions/timelines","reject",false,"reject",true);
+  assert(rejected.error.empty()&&rejected.objects.size()==2&&rejected.hasGlobals);
+  auto missing=peek::loadSnapshot(root,"missions/timelines","threadless",false,"threadless",true);
+  assert(missing.error.empty()&&missing.objects.empty()&&!missing.hasGlobals&&colours(missing,{1,0,0},{0,0,0}));
+  for(const auto& tile:missing.tiles)assert(tile.kind==0&&tile.definition.empty());
+  assert(!peek::loadSnapshot(root,"missions/timelines","threadless",false,"threadless").error.empty());}
  peek::ParticleEffect effect;effect.count=8;effect.velocityMin=effect.velocityMax={0,1,0};
  auto a=peek::sampleParticles(effect,1.01,42),b=peek::sampleParticles(effect,1.11,42),same=peek::sampleParticles(effect,1.01,42);
  assert(!a.empty()&&!b.empty()&&a.size()==same.size()&&a.size()<=8);
@@ -136,5 +155,5 @@ int main(){
  assert(replaced==1);
  assert(!peek::importSaves(cloud.wstring(),{},folder.wstring(),error)&&!error.empty());
  fs::remove_all(folder);
- std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import, undo targets\n";
+ std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import, undo targets, flames into paradox rooms, timeline colours\n";
 }

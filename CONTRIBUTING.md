@@ -60,8 +60,9 @@ For a non-default installation, pass `-SteamDirectory 'D:\Steam'` to the backup 
 **Start-Preview.cmd** and press Enter twice to open **Preview Lab**.
 
 The test menu includes **Preview Lab** (including a room with both return flames), stock **Chests** and
-**Flood**, **State Lab** for wet/global state, and **Render Lab** for comparing the native room and its
-self-referencing preview.
+**Flood**, **State Lab** for wet/global state, **Render Lab** for comparing the native room and its
+self-referencing preview, and **Paradox Lab**, where carrying the first room's global chest into the
+attic and putting it down turns the attic's flame into a paradox.
 
 ## Developer diagnostics
 

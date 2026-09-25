@@ -76,5 +76,24 @@ int main(){
  }
  std::cout<<"Stock starting rooms: "<<count-failed<<"/"<<count<<" loaded\n";
  assert(failed==0);
+ // Paradox rooms: black tiles, their own colours, and a global chest that outlives each visit.
+ auto reject=peek::loadSnapshot("runtime","missions/addon/city11","reject",false,"reject",true);
+ assert(reject.error.empty()&&reject.tiles[0].definition=="black"&&reject.objects.size()==3);
+ bool locker=false;for(auto& o:reject.objects)locker|=o.kind=="chest"&&o.target=="locker"&&o.global;assert(locker);
+ assert(std::fabs(reject.dark[0]-.24f)<1e-6f&&std::fabs(reject.light[2]-.20f)<1e-6f);
+ auto purple=peek::loadSnapshot("runtime","missions/addon/library12","reject",false,"reject",true);
+ assert(purple.error.empty()&&std::fabs(purple.dark[0]-.5f)<1e-6f&&std::fabs(purple.light[0]-.8f)<1e-6f);
+ auto threadless=peek::loadSnapshot("runtime","missions/addon/library13","threadless",false,"threadless",true);
+ assert(threadless.error.empty()&&!threadless.objects.empty()&&std::fabs(threadless.dark[0]-.75f)<1e-6f);
+ // A level without one builds an empty room; a level with one colour pair draws it in that pair.
+ auto nowhere=peek::loadSnapshot("runtime","missions/basic1","threadless",false,"threadless",true);
+ assert(nowhere.error.empty()&&nowhere.objects.empty()&&std::fabs(nowhere.dark[2]-.48f)<1e-6f);
+ size_t paradoxRooms=0;
+ for(const auto& f:std::filesystem::recursive_directory_iterator("runtime/data/missions"))if(f.path().extension()==".lua"){
+   auto mission="missions/"+std::filesystem::relative(f.path(),"runtime/data/missions").generic_string();
+   for(const char* room:{"reject","threadless"}){auto r=peek::loadSnapshot("runtime",mission,room,false,room,true);
+     if(!r.error.empty())std::cerr<<mission<<" "<<room<<": "<<r.error<<"\n";assert(r.error.empty());paradoxRooms+=!r.objects.empty();}
+ }
+ std::cout<<"Stock paradox rooms: "<<paradoxRooms<<" defined, the rest empty\n";
  std::cout<<"PASS: actual Lua room extraction, object targets, tile mappings, water, stock level, missing room and path rejection\n";
 }

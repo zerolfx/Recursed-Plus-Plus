@@ -177,6 +177,20 @@ Checked on 2026-09-23 by the player with an Xbox Wireless Controller over Blueto
 
 The digests cover positions, velocities, contact bits, the player's move state, the held item and a few kind-specific fields, never a heap pointer. They are not a proof that every field matches, only that nothing they cover ever differed.
 
+## Paradox increment
+
+`build/ci_test.exe` builds a room stack in authored memory and checks where a flame leads: back to the room below when the chest its player went in through is ahead of that player or comes back with the room's globals, into `reject` when that chest was carried into the room it leads to and put down, back home again while it is held, into `reject` through a green flame even when held, home again when the room left has the same name, `threadless` for a cauldron, and the globals moved room by room when walking out further. It also checks colours kept per timeline and the empty room of a missing paradox function. `build/snapshot_test.exe` loads `reject` and `threadless` for every stock mission: 25 are defined, the rest are empty rooms, and the defined ones take their own colours.
+
+The isolated build was played on 2026-09-25 in Paradox Lab (`tests/paradox-lab.lua`), steering by key presses of at least 0.15 s, which the game samples once a tick:
+
+- The first room has no flame, as the game builds none in the outermost room.
+- In the attic, the first room's flame previews `start` at Depth -1 with its global chest back in place; pinned, clicking that chest opens the attic at Depth 0. Before this increment the chest was missing from that preview.
+- A second `start`, reached through the attic's chest at Depth 2, holds the global chest. Carried out through its flame, whose preview read `attic` at Depth -1, it arrived in the attic in hand.
+- Holding it, the attic's flame previews `start` at Depth -1. Put down, the same flame previews `reject`, labelled Paradox: the lab's dark reject colours, its box, and no flame. Walking out then took the game into `reject`, and the room matched the preview in colours, box position and the missing flame.
+- The log records the preview as `reject|reject|dry|paradox` with one object, and two builds of `reject` by the game, as the disassembly predicts.
+- After the review fixes, which added the restore's refusal of a global blocked by a solid tile or a locked lock, a rerun showed the attic's flame still previewing `start` with its global chest, now settled onto the floor the way the game's restore places it.
+- The game was closed at the end; no Recursed process remained.
+
 ## Save isolation
 
 The local backup verifier confirmed eleven backed-up files and unchanged original hashes, covering both the Steam progress and this build's own save folder. The verifier had been reading a multi-entry manifest as one entry, which made it fail on any backup of more than one file; it now walks the entries. Backups, manifests containing private paths, and runtime files are not distributed. Users should run `tools/backup-saves.ps1` and `tools/verify-backup.ps1` on their own installation.

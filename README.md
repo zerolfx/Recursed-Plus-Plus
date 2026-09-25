@@ -20,7 +20,7 @@ That executable is the whole download: it carries the mod inside itself and unpa
 
 **What it does to your installation.** Nothing is written into the game's folder. You play the progress you already have, through Steam, with achievements and cloud saves as they always were; only the graphics and sound settings are kept apart, under `%LOCALAPPDATA%\Recursed++\profile`. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
 
-Security software often blocks the mod, because loading code into another process is what a cheat would do. The launcher says so when that happens, and names the files to allow. `%LOCALAPPDATA%\Recursed++\peek.log` records what the mod did.
+Security software often blocks the mod, because loading code into another process is what a cheat would do. The launcher says so when that happens, and names the files to allow. `%LOCALAPPDATA%Recursed++peek.log` records what the mod did.
 
 ## Your progress
 
@@ -58,7 +58,7 @@ A gamepad can be connected or switched on at any time, including after the game 
 
 The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout, or hold Ctrl with O, Q or W. Chests have a small hover underline instead of persistent bounding boxes.
 
-Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. There is currently one shared preview, shown either inline or in one separate window.
+Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. A flame that would cause a paradox, because the chest you came in through is no longer outside, shows the paradox room instead, marked Paradox; rooms inside it count their depth from it. There is currently one shared preview, shown either inline or in one separate window.
 
 ## Undo
 
@@ -76,7 +76,7 @@ Two objects are still handled differently. A room holding a crux uses the resour
 
 The first level reads the actual chest's wet flag. Deeper levels infer wetness from snapshot tiles. Saved global objects replace initial declarations, and self-referencing previews read the current room's global objects. Held or destroyed objects are excluded where identified. Unvisited rooms retain their initial declarations.
 
-An open preview resamples relevant game state on the render thread and redraws at up to 30 Hz. Outside previews read the real room stack, tiles, and entities, so moved or removed objects are reflected. Inside previews refresh saved globals and the source chest's liquid state. A changed root destination or liquid branch resets deeper navigation. Live/global chests along a nested path are also revalidated: water changes update the branch and a removed chest returns to its parent. A missing root source or room transition closes the preview. The main game continues running while you inspect.
+An open preview resamples relevant game state on the render thread and redraws at up to 30 Hz. Outside previews read the real room stack, tiles, and entities, so moved or removed objects are reflected. They also show the global objects a room gets back when you walk into it again. Inside previews refresh saved globals and the source chest's liquid state. A changed root destination or liquid branch resets deeper navigation. Live/global chests along a nested path are also revalidated: water changes update the branch and a removed chest returns to its parent. A missing root source or room transition closes the preview. The main game continues running while you inspect.
 
 Ordinary chest entry constructs a fresh room, so local objects inside a hypothetical destination still come from its room script. Outer previews use existing room instances. Carried-item branches, consecutive hypothetical entries, preserved jar instances, and cauldron rules are not fully modeled. Outer objects are reconstructed for display, so orientation and particle phase need not match the original instance exactly. See the [validation notes](docs/validation.md) for tested behavior and remaining GUI checks.
 

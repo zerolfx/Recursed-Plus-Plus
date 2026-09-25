@@ -11,5 +11,6 @@ bool previewWindowOpen();
 bool previewWindowFocused();
 bool previewEscapeHeld();
 WindowAction pumpPreviewWindow();
-void updatePreviewWindow(const RoomArt& art,const Snapshot& snapshot,const std::string& room,int depth,const std::string& status,const std::string& view);
+// depth is how deep the room is as the preview says it, such as "Depth 2" or "Paradox".
+void updatePreviewWindow(const RoomArt& art,const Snapshot& snapshot,const std::string& room,const std::string& depth,const std::string& status,const std::string& view);
 }
