@@ -15,6 +15,8 @@ The executable uses MSVC 2013, SFML 2, Lua 5.2.4, GLEW, and OpenGL. It exposes n
 | --- | --- |
 | Chest vtable slot `0x47AD80`, function `0x411730` | Observe chest transforms; position at +0x08/+0x0C, destination string at +0x4C |
 | Door vtable slot `0x47AF24`, function `0x413600` | Observe red/green return portals and resolve the parent room |
+| Jar vtable slot `0x47B0D8`, function `0x415F30` | Observe jars; +0x4C is the jar's identity |
+| Cauldron vtable slot `0x47ACD8`, function `0x410C60` | Observe cauldrons; +0x4C is the timeline the cauldron switches to |
 | `0x440A20` | Observe real room construction and invalidate preview state |
 | SFML `Window::display` | Draw the inspection UI |
 | SFML `Window::pollEvent` and keyboard query | Navigation and separate-window input isolation |
@@ -85,6 +87,29 @@ So leaving stack entry i checks the Player of entry i-1. Its anchor passes when 
 The room builder `0x440A20` makes `Global()` a no-op once host+0x6C has the room's name, and calls the room function through `lua_pcall` with the wet flag and the held item's identity. A failed call still counts as built, so a missing `reject` or `threadless` function leaves an empty 20×15 room whose tiles the terrain stage skips. Only a function returning exactly `false` makes `0x43FCE0` undo the entry.
 
 Level load fills host+0x38, a map of colour pairs by timeline name, with a grey `start` (dark 0.2, light 0.4) and then the Lua `dark` and `light` tables: a table with a `start` field is keyed by timeline, a new key's other colour is black, and any other table sets `start`. The renderer looks up host+0x84, the timeline being played, and falls back to the first key (`0x43FBC0`, `0x43FC50`). It reads nothing else about paradoxes: no stack name, no Room+0x94, no host+0x9C.
+
+## Cauldrons and timelines
+
+Cauldron vtable `0x47ACCC`: destructor `0x410880`, attach `0x4108F0`, update `0x410AC0`, transform `0x410C60` (slot `0x47ACD8`), contact `0x410D80` (+0x14), identity `0x410E30` (`cauldron-` plus +0x4C). The constructor `0x410650` stores +0x4C, sets +0x64 = 1 (idle) and +0x68 = 0 (the player inside), half extents 0.4 by 0.4, and a random yaw. Its transform draws the model at (x, y + 0.4); `assets/cauldron` is a lathe 1.0 high, 0.75 in radius at its body and 0.8 at its feet on the floor line, so on screen a cauldron spans about x ± 0.75 and y - 0.6 to y + 0.4, wider and lower than a chest. A chest's model stands on y + 0.4 too: its box is 1.0 wide, 0.8 deep and 0.6 high, so turned by its random yaw it is up to 1.3 across, and its open lid (`chestlid(-120)`) reaches about y - 0.89. A jar's transform `0x415F30` puts its model 0.5 below its position (`0x47CE98`, matching its half extents 0.5), and `jar` in `assets/yield` is a lathe 0.8 high and 0.6 in radius with two handles reaching 0.89 either side, which the jar's random yaw turns; a jar spans y - 0.3 to y + 0.5. The hover boxes and underlines follow these extents.
+
+The pair loop of Room update `0x41C8C0` calls +0x14 for overlapping bodies of the same room. `0x416BB0`, shared with Chest and Jar, lets the Player in when the container rests on a floor, the Player lands on it at 8 tiles/s (2 in liquid, by the container's liquid bit), within its width, the room's +0x94 is not 1, the container is not the held item, and the Player's re-entry cooldown has passed. The cauldron takes the Player out of the room, and about a third of a second later its update posts event 9 with a copy of +0x4C, puts the Player back at the end of the room's vector, launches it upward and anchors it to itself. The event's other word, the cauldron's flags, is ignored: a cauldron in water leads nowhere different.
+
+Event 9 runs `0x440860`, which the host constructor also calls with `start` and the paradox handler with its room's name:
+
+1. With a stack, save the top's globals (`0x440BD0`), deactivate the top, copy the stack into host+0x7C under host+0x84 and empty it. No Room is freed.
+2. host+0x84 = the target, then swap the stack with host+0x7C[target] (`0x441310` is `operator[]` and inserts).
+3. Still empty, build the room named after the timeline, fresh, dry and alone (`0x43FCE0`(target, 0)): Spawn("player") makes a Player but no Door, so the room has no flame. It restores globals itself.
+4. Restore the top's globals (`0x440CD0`) and reactivate the top (`0x41C6A0`).
+
+host+0x7C is a map<string, vector<pair<string, Room*>>> of the same node layout as host+0x6C: key +0x10, vector begin/end/capacity at +0x28/+0x2C/+0x30, 28-byte stack records. Nodes are never erased during a level. The timeline being played always has an empty vector there, because entering a timeline swaps its stack out, so a cauldron into the timeline being played has to be recognised by host+0x84 first: the switch then saves the same stack and takes it straight back. A restart builds a new host.
+
+The top room returned to takes back the list saved under its own name, and the lists are keyed by room name across all timelines: a room of that name entered elsewhere has taken them, and the room being left, if it has that name, has just added its own. What a restore refuses stays on the list, and a fresh build's second restore only retries those. The rooms of a saved stack are deactivated, so the restore there cannot set off contact effects, and the collision check is the whole of it.
+
+Reactivation attaches each entity in vector order, and Player attach `0x416EA0` posts event 6 when its anchor is set, is not the held item and is not yet owned by the room. The drain loop of Game::update reads the new top's queue, so the paradox `0x440510` follows in the same update, as it does for a flame; the saved top's player is anchored to the cauldron it last left through, which is ahead of it unless it is a global the restore did not bring back. `0x440510` then saves that stack back under the timeline, destroys the paradox timeline's own stack room by room, and builds the paradox room fresh, `threadless` for a cauldron and `reject` for a chest; the attach returned early, so the anchor stays set and the same timeline paradoxes again next time. Into the timeline being played, the room's globals go out and come back, so only a global cauldron that the room refuses to take back can do the same.
+
+The held item goes with the player. Deactivating the room left runs Player detach, which takes it out of that room (`0x4170C9`), and the attach of the player that arrives puts it into the new room (`0x416FC7`); the save and the restore both skip it. A fresh build also passes its identity to the room's Lua function.
+
+The renderer reads the stack only for its top room and its number of records: the background layer is (count - 1) modulo the layers of its image. host+0x84 picks the colours. A preview of another timeline's room therefore renders with a private stack as deep as that timeline's, and names that timeline in its host copy. Preview reads resolve the map node again on every frame and keep no saved Room pointer between frames.
 
 ## Native rendering
 

@@ -46,14 +46,17 @@ void post(UINT message,WPARAM w,const std::wstring& text){
 const wchar_t* kHelpText=
 L"Controls\r\n"
 L"\r\n"
-L"  Hover a chest, jar or flame    Preview the room it leads to.\r\n"
+L"  Hover a chest, jar,       Preview the room it leads to.\r\n"
+L"  cauldron or flame\r\n"
 L"  Left click                Pin that preview in the game window.\r\n"
 L"  Shift + left click        Open the preview in its own window.\r\n"
 L"  O                         Move the preview between the game and that window.\r\n"
-L"  Hover a chest or jar inside      Show the depth and room a click there opens.\r\n"
+L"  Hover a chest, jar,       Show the depth and room a click there opens.\r\n"
+L"  cauldron or flame inside\r\n"
 L"  a preview pinned in the\r\n"
 L"  game window\r\n"
-L"  Click a chest or jar inside      Go one room deeper, up to eight.\r\n"
+L"  Click a chest, jar or     Go into the room it leads to, up to eight.\r\n"
+L"  cauldron inside\r\n"
 L"  Click a red or green      Look at the room outside this one.\r\n"
 L"  flame inside\r\n"
 L"  Mouse back and forward    Walk the rooms you have looked at, both ways.\r\n"
@@ -64,7 +67,8 @@ L"  Q, or RB on a gamepad     Undo: go back to just before your last action.\r\n
 L"  W, or RT on a gamepad     Go back five seconds of game time.\r\n"
 L"\r\n"
 L"Depth is counted from the room you are standing in: 1 is inside the chest, 0 is\r\n"
-L"where you are, -1 is outside.\r\n"
+L"where you are, -1 is outside. A cauldron leads into another timeline, whose rooms\r\n"
+L"count from its first room.\r\n"
 L"\r\n"
 L"What this does to your game\r\n"
 L"\r\n"
@@ -323,7 +327,7 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
     case kLaunched:{
         std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
         setBusy(false);
-        if(w)say(L"Running. Hover a chest or jar in the game to look inside it.");
+        if(w)say(L"Running. Hover a chest, jar or cauldron in the game to see where it leads.");
         else {say(L"The game did not start.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
         return 0;}
     case kSteamSaves:{

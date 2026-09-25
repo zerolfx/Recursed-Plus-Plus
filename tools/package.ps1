@@ -38,7 +38,7 @@ if ($Kind -ne 'player') {
         'docs/validation.md', 'docs/chest-preview.png', 'docs/outside-preview.png',
         'docs/native-destination.png', 'docs/native-water.png',
         'tools/prepare-runtime.ps1', 'tools/backup-saves.ps1', 'tools/verify-backup.ps1',
-        'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/paradox-lab.lua', 'tests/jar-lab.lua', 'tests/nexus.lua',
+        'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/paradox-lab.lua', 'tests/jar-lab.lua', 'tests/cauldron-lab.lua', 'tests/nexus.lua',
         'AGENTS.md'
     )
     # A file added under tools/, tests/ or docs/ is developer material by default, and silently
@@ -48,7 +48,7 @@ if ($Kind -ne 'player') {
         'tools/bootstrap.ps1', 'tools/check-repository.ps1', 'tools/package.ps1',
         'tools/disasm.cjs', 'tools/inspect.cjs', 'tools/probe.cpp',
         'tests/ci_test.cpp', 'tests/snapshot_test.cpp', 'tests/render_test.cpp',
-        'tests/live_state_fixture.h', 'tests/exit_fixture.h', 'tests/fixtures/custom/missions/test.lua',
+        'tests/live_state_fixture.h', 'tests/exit_fixture.h', 'tests/cauldron_fixture.h', 'tests/fixtures/custom/missions/test.lua',
         'tests/fixtures/custom/missions/timelines.lua',
         'tests/fixtures/data/tiles/test.lua'
     )

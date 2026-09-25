@@ -13,6 +13,6 @@ int wmain(){
     std::wstring error;
     const auto id=peek::launchModded(game,plugin,peek::SteamUse::Isolated,true,error);
     if(!id){fwprintf(stderr,L"%ls\n",error.c_str());return 2;}
-    wprintf(L"Recursed++ started. PID=%lu. Hover a chest or jar to look inside it.\n",id);
+    wprintf(L"Recursed++ started. PID=%lu. Hover a chest, jar or cauldron to see where it leads.\n",id);
     return 0;
 }

@@ -11,6 +11,7 @@
 #include <iostream>
 #include "live_state_fixture.h"
 #include "exit_fixture.h"
+#include "cauldron_fixture.h"
 // The game never sees the storage object; it calls entries of the interface table Steam would
 // have handed it. Declaring the same entries in the same order here tests the offsets the game
 // actually uses, not just the code behind them.
@@ -61,6 +62,7 @@ int main(){
  }
  assert(!peek::loadSnapshot(root,"../outside","start",false).error.empty());
  testExitTarget();
+ testCauldronTarget();
  // Colours are kept per timeline once a table has a start entry; a timeline without its own
  // entry takes the first name's, and a colour one table leaves out is zero.
  {auto colours=[](const peek::Snapshot& s,std::array<float,3> dark,std::array<float,3> light){for(int i=0;i<3;i++)if(std::fabs(s.dark[i]-dark[i])>1e-6f||std::fabs(s.light[i]-light[i])>1e-6f)return false;return true;};
@@ -155,5 +157,5 @@ int main(){
  assert(replaced==1);
  assert(!peek::importSaves(cloud.wstring(),{},folder.wstring(),error)&&!error.empty());
  fs::remove_all(folder);
- std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import, undo targets, flames into paradox rooms, timeline colours\n";
+ std::cout<<"PASS: authored fixtures, tile identities, wet branches, saved globals, Lua limits, deterministic particles, Steam library parsing, save storage and import, undo targets, flames into paradox rooms, cauldron timeline switches, timeline colours\n";
 }

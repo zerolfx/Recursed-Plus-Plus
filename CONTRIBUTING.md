@@ -69,6 +69,13 @@ carry the room out in a jar. The jar should preview the preserved box, global ke
 inner chest. Move the box before leaving to compare preserved positions with a fresh chest
 entry. Pin the jar, open its window, and follow the inner chest and return flame.
 
+**Cauldron Lab** starts in the timeline `start`. Its cauldron should preview `two` built fresh, in
+two's colours and without a flame; after using it, two's cauldron home should preview `start` as
+it was left. The chest leads into `lab`, whose global cauldron into two previews `two` from there,
+and in two's own `lab` it shows the room itself. For the paradox, take lab's cauldron into two, go
+into two's lab, carry the cauldron out and put it down: two's cauldron home then previews
+`threadless`, marked Paradox.
+
 ## Developer diagnostics
 
 These exist only in a run started with `RECURSED_PEEK_DEV=1`, which **Start-Preview.cmd** and the

@@ -14,5 +14,6 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\state-lab.lua') -Destinati
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\render-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\render-lab.lua')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\paradox-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\paradox-lab.lua')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\jar-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\jar-lab.lua')
+Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\cauldron-lab.lua') -Destination (Join-Path $runtimePath 'custom\missions\cauldron-lab.lua')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\nexus.lua') -Destination (Join-Path $runtimePath 'data\nexus.lua')
 Write-Output "Isolated runtime ready: $runtimePath"

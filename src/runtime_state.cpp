@@ -93,6 +93,103 @@ bool refused(uintptr_t room, uint32_t e, const std::vector<uint32_t>& present) {
     }
     return false;
 }
+// A stack of rooms, as 28-byte records of a room name and a Room: the one being played, or one a
+// timeline switch put aside.
+struct Stack {
+    uintptr_t begin = 0; int count = 0;
+    std::string name(int i) const { return oldString(begin + 28 * i); }
+    uintptr_t room(int i) const { auto r = pointer(begin + 28 * i + 24); if (!r) throw std::runtime_error("Missing ancestor room"); return r; }
+};
+// The stack being played, which must still end in the room the reading was made for.
+Stack playedStack(uintptr_t host, uintptr_t sourceRoom) {
+    if (!host || !sourceRoom) throw std::runtime_error("No active room");
+    auto begin = pointer(host + 0x54), end = pointer(host + 0x58);
+    if (end <= begin || (end - begin) % 28 || (end - begin) / 28 > 4096) throw std::runtime_error("Invalid room stack");
+    if (pointer(end - 4) != sourceRoom) throw std::runtime_error("Scene changed");
+    return {begin, (int)((end - begin) / 28)};
+}
+// Switching timeline (0x440860) puts the whole stack aside in host+0x7C, a
+// map<string, vector<pair<string, Room*>>> by timeline name: key +0x10, vector +0x28. A timeline
+// never left has no entry, and one the switch has taken back leaves an empty vector behind.
+Stack savedStack(uintptr_t host, const std::string& timeline) {
+    auto head = pointer(host + 0x7c), node = pointer(head + 4);
+    unsigned depth = 0;
+    while (node != head) {
+        if (++depth > 128 || read<uint8_t>(node + 13)) throw std::runtime_error("Invalid timeline tree");
+        const auto key = oldString(node + 0x10);
+        if (key == timeline) {
+            auto begin = pointer(node + 0x28), end = pointer(node + 0x2c), capacity = pointer(node + 0x30);
+            if (end < begin || capacity < end || (end - begin) % 28 || (end - begin) / 28 > 4096) throw std::runtime_error("Invalid saved stack");
+            return {begin, (int)((end - begin) / 28)};
+        }
+        node = pointer(node + (timeline < key ? 0 : 8));
+    }
+    return {};
+}
+// What leaving and entering rooms does to the saved global lists: each list is read once, and then
+// moved the way the game would move it, without touching the game's own.
+struct Moves {
+    uintptr_t host = 0; uint32_t held = 0;
+    struct Saved { bool present = false; std::vector<uint32_t> list; };
+    std::map<std::string, Saved> saved;
+    Saved& savedFor(const std::string& name) {
+        auto found = saved.find(name); if (found != saved.end()) return found->second;
+        auto& s = saved[name]; s.present = savedList(host, name, s.list); return s;
+    }
+    // Leaving a room (0x440BD0) moves its globals, except the held item and anything being
+    // destroyed, onto its name's list, which it creates if it has to.
+    void leave(const std::string& name, std::vector<uint32_t>& live) {
+        auto& out = savedFor(name); out.present = true; std::vector<uint32_t> kept;
+        for (auto e : live) if (e != held && read<uint8_t>(e + 0x45) && !read<uint8_t>(e + 0x44)) out.list.push_back(e); else kept.push_back(e);
+        live.swap(kept);
+    }
+    // A room takes its globals back (0x440CD0), all but the held item, one at a time and in order;
+    // what the room refuses stays on the list. Answers how many entities the room had before.
+    size_t restore(const std::string& name, uintptr_t room, std::vector<uint32_t>& back) {
+        const size_t stayed = back.size();
+        auto& restored = savedFor(name);
+        std::vector<uint32_t> left;
+        for (auto e : restored.list) if (e != held) { if (refused(room, e, back)) left.push_back(e); else back.push_back(e); }
+        restored.list.swap(left);
+        return stayed;
+    }
+    // Then the room is reactivated (0x41C6A0), which gives each entity the room back in vector order
+    // and attaches it at once. The player (0x416EA0) needs what it went in through to be the room's
+    // already: an entity ahead of it, or a global put back just before. When it is not, this names
+    // the paradox room the game leaves for.
+    std::string paradox(const std::vector<uint32_t>& back, size_t stayed) const {
+        uint32_t anchor = 0; size_t player = stayed;
+        for (size_t k = 0; k < stayed; k++) if (entityKind(back[k]) == "player") { player = k; anchor = pointer(back[k] + 0x5c); break; }
+        const auto at = (size_t)(std::find(back.begin(), back.end(), anchor) - back.begin());
+        if (!anchor || anchor == held || at < player || (at >= stayed && at < back.size())) return {};
+        // Named by what it went in through: a chest's name starts with "chest-" (0x411970), a jar's
+        // is its own and a cauldron's starts with "cauldron-".
+        const auto kind = entityKind(anchor);
+        const bool chest = kind == "chest" || (kind == "jar" && oldString(anchor + 0x4c).compare(0, 6, "chest-") == 0);
+        return chest ? "reject" : "threadless";
+    }
+    // A room built fresh (0x43FCE0) restores what is saved under its name.
+    GlobalState savedGlobals(const std::string& name) {
+        GlobalState result; auto& s = savedFor(name);
+        result.available = true; result.initialized = s.present; collect(result, s.list, held);
+        return result;
+    }
+};
+// Switching to a timeline that has a stack put aside (0x440860): the room being played puts its
+// globals aside first, then the top room of the saved stack takes its own back and is reactivated.
+struct Switched { Stack stack; std::vector<uint32_t> live; size_t stayed = 0; std::string paradox; };
+Switched switchTo(Moves& moves, const Stack& played, const std::string& timeline) {
+    Switched s;
+    auto current = pointers(played.room(played.count - 1) + 0x14);
+    moves.leave(played.name(played.count - 1), current);
+    s.stack = savedStack(moves.host, timeline);
+    if (!s.stack.count) return s;
+    const int top = s.stack.count - 1;
+    s.live = pointers(s.stack.room(top) + 0x14);
+    s.stayed = moves.restore(s.stack.name(top), s.stack.room(top), s.live);
+    s.paradox = moves.paradox(s.live, s.stayed);
+    return s;
+}
 }
 
 GlobalState readGlobals(uintptr_t host, uintptr_t sourceRoom, const std::string& target) {
@@ -120,97 +217,117 @@ GlobalState readGlobals(uintptr_t host, uintptr_t sourceRoom, const std::string&
     return result;
 }
 
-RoomReference readRoomReference(uintptr_t host,uintptr_t sourceRoom,int ancestors){
+RoomReference readRoomReference(uintptr_t host,uintptr_t sourceRoom,int ancestors,const std::string& stack){
     RoomReference result;
     try {
-        if(!host||!sourceRoom||ancestors<0||ancestors>4095)throw std::runtime_error("Invalid ancestor request");
-        auto begin=pointer(host+0x54),end=pointer(host+0x58);
-        if(end<=begin||(end-begin)%28||(end-begin)/28>4096)throw std::runtime_error("Invalid room stack");
-        if(pointer(end-4)!=sourceRoom)throw std::runtime_error("Scene changed");
-        int count=(end-begin)/28;
-        if(ancestors>=count)throw std::runtime_error("Already at the outermost room");
-        auto entry=end-28*(ancestors+1);
-        result.name=oldString(entry);result.room=pointer(entry+24);result.depth=count-ancestors-1;
-        if(!result.room)throw std::runtime_error("Missing ancestor room");
+        if(ancestors<0||ancestors>4095)throw std::runtime_error("Invalid ancestor request");
+        auto rooms=playedStack(host,sourceRoom);
+        if(!stack.empty())rooms=savedStack(host,stack);
+        if(ancestors>=rooms.count)throw std::runtime_error("Already at the outermost room");
+        const int i=rooms.count-ancestors-1;
+        result.name=rooms.name(i);result.room=rooms.room(i);result.depth=i;
     }catch(const std::exception& e){result={};result.error=e.what();}
     return result;
 }
 
-ExitTarget readExitTarget(uintptr_t host,uintptr_t sourceRoom,int from,uint32_t greens){
+ExitTarget readExitTarget(uintptr_t host,uintptr_t sourceRoom,int from,uint32_t greens,const std::string& stack){
     ExitTarget result;
     try {
-        if(!host||!sourceRoom||from<0||from>4095)throw std::runtime_error("Invalid exit request");
-        auto begin=pointer(host+0x54),end=pointer(host+0x58);
-        if(end<=begin||(end-begin)%28||(end-begin)/28>4096)throw std::runtime_error("Invalid room stack");
-        if(pointer(end-4)!=sourceRoom)throw std::runtime_error("Scene changed");
-        const int count=(end-begin)/28,last=count-1-from;
+        if(from<0||from>4095)throw std::runtime_error("Invalid exit request");
+        auto rooms=playedStack(host,sourceRoom);
+        Moves moves;moves.host=host;moves.held=pointer(pointer(host+4)+4);
+        std::vector<uint32_t> live=pointers(sourceRoom+0x14);
+        if(!stack.empty()){
+            // A flame of a room a cauldron leads back to: the switch there comes first.
+            auto switched=switchTo(moves,rooms,stack);
+            if(!switched.stack.count||!switched.paradox.empty())throw std::runtime_error("Scene changed");
+            rooms=switched.stack;live.swap(switched.live);
+            // The player arriving there puts what it holds into the room (0x416FC7), after the
+            // globals the room took back.
+            if(moves.held&&std::find(live.begin(),live.end(),moves.held)==live.end())live.push_back(moves.held);
+        }
+        const int count=rooms.count,last=count-1-from;
         // A room built alone on its stack gets no flame (0x43E8CF, 0x43EB74), so there is none to
         // take out of the outermost room.
         if(last<1)throw std::runtime_error("No flame in the outermost room");
-        auto held=pointer(pointer(host+4)+4);
-        // Saved global lists by room name, read once and then moved the way each exit moves them.
-        struct Saved {bool present=false;std::vector<uint32_t> list;};
-        std::map<std::string,Saved> saved;
-        auto savedFor=[&](const std::string& name)->Saved&{
-            auto found=saved.find(name);if(found!=saved.end())return found->second;
-            auto& s=saved[name];s.present=savedList(host,name,s.list);return s;
-        };
-        // Leaving a room (0x440BD0) moves its globals, except the held item and anything being
-        // destroyed, onto its name's list, which it creates if it has to.
-        auto leave=[&](const std::string& name,std::vector<uint32_t>& live){
-            auto& out=savedFor(name);out.present=true;std::vector<uint32_t> kept;
-            for(auto e:live)if(e!=held&&read<uint8_t>(e+0x45)&&!read<uint8_t>(e+0x44))out.list.push_back(e);else kept.push_back(e);
-            live.swap(kept);
-        };
-        auto name=[&](int i){return oldString(begin+28*i);};
-        auto roomAt=[&](int i){auto room=pointer(begin+28*i+24);if(!room)throw std::runtime_error("Missing ancestor room");return room;};
-        auto entities=[&](int i){return pointers(roomAt(i)+0x14);};
-        std::vector<uint32_t> live=entities(count-1);
         for(int i=count-1;;i--){
             // A green flame takes nothing through: what is held is put down first, for good.
             const int out=count-1-i;
-            if(out<32&&(greens>>out&1))held=0;
-            leave(name(i),live);
-            // The room below takes its globals back (0x440CD0), all but the held item, one at a time
-            // and in order; what the room refuses stays on the list.
-            const auto below=name(i-1);
-            auto back=entities(i-1);
-            const size_t stayed=back.size();
-            auto& restored=savedFor(below);
-            std::vector<uint32_t> left;
-            for(auto e:restored.list)if(e!=held){if(refused(roomAt(i-1),e,back))left.push_back(e);else back.push_back(e);}
-            restored.list.swap(left);
-            const std::vector<uint32_t> returned(back.begin()+stayed,back.end());
-            // Then it is reactivated (0x41C6A0), which gives each entity the room back in vector
-            // order and attaches it at once. The player (0x416EA0) needs what it went in through to
-            // be the room's already: an entity ahead of it, or a global put back just before.
-            uint32_t anchor=0;size_t player=stayed;
-            for(size_t k=0;k<stayed;k++)if(entityKind(back[k])=="player"){player=k;anchor=pointer(back[k]+0x5c);break;}
-            const auto at=(size_t)(std::find(back.begin(),back.end(),anchor)-back.begin());
-            if(anchor&&anchor!=held&&at>=player&&(at<stayed||at==back.size())){
-                // Named by what it went in through: a chest's name starts with "chest-" (0x411970),
-                // a jar's is its own and a cauldron's starts with "cauldron-".
-                const auto kind=entityKind(anchor);
-                const bool chest=kind=="chest"||(kind=="jar"&&oldString(anchor+0x4c).compare(0,6,"chest-")==0);
-                result.paradox=true;result.room=chest?"reject":"threadless";
+            if(out<32&&(greens>>out&1))moves.held=0;
+            moves.leave(rooms.name(i),live);
+            const auto below=rooms.name(i-1);
+            auto back=pointers(rooms.room(i-1)+0x14);
+            const size_t stayed=moves.restore(below,rooms.room(i-1),back);
+            if(auto paradox=moves.paradox(back,stayed);!paradox.empty()){
+                result.paradox=true;result.room=paradox;
                 // Switching timeline (0x440860) leaves this room as well.
-                leave(below,back);
+                moves.leave(below,back);
                 break;
             }
             if(i==last){
-                result.room=below;result.ancestors=from+1;
-                result.globals.available=result.globals.initialized=true;collect(result.globals,returned,held);
+                result.room=below;result.ancestors=from+1;result.depth=i-1;
+                result.globals.available=result.globals.initialized=true;
+                collect(result.globals,std::vector<uint32_t>(back.begin()+stayed,back.end()),moves.held);
                 break;
             }
             // Walking on out: the held item comes along.
             live.swap(back);
-            if(held&&std::find(live.begin(),live.end(),held)==live.end())live.push_back(held);
+            if(moves.held&&std::find(live.begin(),live.end(),moves.held)==live.end())live.push_back(moves.held);
         }
-        if(result.paradox){
-            // The paradox room is built fresh (0x43FCE0) and restores what is saved under its name.
-            auto& s=savedFor(result.room);
-            result.globals.available=true;result.globals.initialized=s.present;
-            collect(result.globals,s.list,held);
+        // The paradox room is built fresh (0x43FCE0) and restores what is saved under its name.
+        if(result.paradox)result.globals=moves.savedGlobals(result.room);
+        result.available=true;
+    }catch(const std::exception& e){result={};result.error=e.what();}
+    return result;
+}
+
+CauldronTarget readCauldronTarget(uintptr_t host,uintptr_t sourceRoom,const std::string& timeline,uintptr_t through){
+    CauldronTarget result;
+    try {
+        if(timeline.empty()||timeline.size()>240)throw std::runtime_error("Invalid timeline");
+        auto rooms=playedStack(host,sourceRoom);
+        Moves moves;moves.host=host;moves.held=pointer(pointer(host+4)+4);
+        // Into the timeline being played, the switch puts the stack aside and takes the same one
+        // back, and the room being played puts its globals aside and takes back what is saved
+        // under its name: what an earlier restore refused, then its own, less anything a solid tile
+        // or a locked lock refuses now. The player comes back out after the cauldron it went in
+        // through, so a local one is always ahead of it; a global one has to be taken back, and one
+        // the room refuses is gone.
+        if(timeline==oldString(host+0x84)){
+            const int top=rooms.count-1;
+            result.room=rooms.name(top);result.depth=top;result.same=true;
+            auto live=pointers(sourceRoom+0x14);
+            moves.leave(result.room,live);
+            const size_t stayed=moves.restore(result.room,sourceRoom,live);
+            if(through&&read<uint8_t>((uint32_t)through+0x45)&&std::find(live.begin(),live.end(),(uint32_t)through)==live.end()){
+                // Paradox (0x440510), named by the cauldron's identity: threadless.
+                moves.leave(result.room,live);
+                result.same=false;result.fresh=result.paradox=true;result.room="threadless";result.depth=0;
+                result.globals=moves.savedGlobals(result.room);
+            }else{
+                result.globals.available=result.globals.initialized=true;
+                collect(result.globals,std::vector<uint32_t>(live.begin()+stayed,live.end()),moves.held);
+            }
+            result.available=true;
+            return result;
+        }
+        auto switched=switchTo(moves,rooms,timeline);
+        if(switched.stack.count&&switched.paradox.empty()){
+            const int top=switched.stack.count-1;
+            result.room=switched.stack.name(top);result.depth=top;
+            result.globals.available=result.globals.initialized=true;
+            collect(result.globals,std::vector<uint32_t>(switched.live.begin()+switched.stayed,switched.live.end()),moves.held);
+        }else{
+            // With no stack put aside, the switch builds the timeline's first room fresh, dry and
+            // alone (0x43FCE0), whose player has no way back to lose. When the player of the room on
+            // top of the stack put aside finds its way back gone, the paradox (0x440510) puts that
+            // room's globals aside again and builds the paradox room fresh instead.
+            if(!switched.paradox.empty()){
+                moves.leave(switched.stack.name(switched.stack.count-1),switched.live);
+                result.paradox=true;result.room=switched.paradox;
+            }else result.room=timeline;
+            result.fresh=true;result.depth=0;
+            result.globals=moves.savedGlobals(result.room);
         }
         result.available=true;
     }catch(const std::exception& e){result={};result.error=e.what();}
@@ -289,8 +406,8 @@ static Snapshot captureRoom(uintptr_t host,uintptr_t room,int depth,const Snapsh
     return result;
 }
 
-Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,const Snapshot& appearance){
-    auto reference=readRoomReference(host,sourceRoom,ancestors);
+Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,const Snapshot& appearance,const std::string& stack){
+    auto reference=readRoomReference(host,sourceRoom,ancestors,stack);
     if(reference.error.empty())return captureRoom(host,reference.room,reference.depth,appearance);
     Snapshot result;result.error=reference.error;return result;
 }

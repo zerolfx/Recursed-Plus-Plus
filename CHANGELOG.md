@@ -5,6 +5,31 @@ landed. Entries describe the behaviour, not the patch.
 
 ## Unreleased
 
+## 1.5.0 - 2026-09-25
+
+### Added
+
+- Hover a cauldron to preview where it takes you, click to pin it, or open it in a separate
+  window. A cauldron switches to the timeline it names. The preview shows the room you would
+  come back to there, as you left it and with the global objects it gets back, or, before you
+  have been there, that timeline's first room as the game builds it: fresh, dry, in the
+  timeline's own colours and without a flame. A cauldron into the timeline you are in shows the
+  room you are in, with the global objects it would take back.
+- When coming back would find the way that room's player went out gone, for instance a global
+  cauldron that a room of the same name in another timeline has taken, the preview shows the
+  paradox room the game sends you to instead, marked Paradox.
+- Cauldrons inside previews can be explored like chests and jars. Rooms in another timeline are
+  marked Other timeline and count their depth from its first room. A flame in a room
+  you would come back to leads out through the rooms that timeline was left with, and a cauldron
+  back into a timeline the preview has already passed through returns to where it was.
+
+### Fixed
+
+- Inside a pinned preview, only something a click would open is underlined. A chest in the eighth
+  room, for instance, was underlined although clicking it did nothing.
+- Chests and jars respond to the pointer where the game draws them. The bottom of a chest and the
+  lower half of a jar did not, and a jar's underline sat inside it.
+
 ## 1.4.0 - 2026-09-25
 
 ### Added

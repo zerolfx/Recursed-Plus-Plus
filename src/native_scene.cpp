@@ -17,7 +17,7 @@ static std::vector<uintptr_t> entities;
 // Kinds whose own update advances the draw angle every frame, with the rate that update uses.
 struct Spin {uintptr_t entity;float base,rate;};
 static std::vector<Spin> rotating;
-static std::string signature,error;
+static std::string signature,error,timelineName;
 static float elapsed=0;
 static Snapshot drawnSnapshot;
 template<class T>T& at(uintptr_t p,size_t offset=0){return *(T*)(p+offset);}
@@ -132,15 +132,27 @@ bool prepareNativeScene(uintptr_t liveHost,const Snapshot& s,const std::string& 
  if(depth<1||depth>8||s.objects.size()>2048){error="Scene exceeds preview limits";return false;}
  Native probe{};for(const auto& o:s.objects)if(!nativeEntity(o.kind,probe)){error="Native scene does not yet support "+o.kind;return false;}
  std::array<int,300> indices{};for(size_t i=0;i<300;i++){indices[i]=s.live?s.tiles[i].nativeIndex:tileIndex(liveHost,s.tiles[i]);if(indices[i]<0||indices[i]>4096){error="Native tile definition missing: "+s.tiles[i].definition;return false;}}
- // The renderer takes its colours from host+0x84, the timeline being played (0x43FBC0, 0x43FC50).
- // Only a name that fits in the string's own buffer can be written into the private copy.
- if(s.timeline.size()>15){error="Timeline name too long";return false;}
- std::ostringstream stamp;stamp.precision(9);stamp<<liveHost<<'|'<<key<<'|'<<depth<<'|'<<s.nativeDepth<<'|'<<s.live<<'|'<<s.timeline;for(size_t i=0;i<300;i++)stamp<<','<<s.tiles[i].kind<<':'<<indices[i];for(const auto& o:s.objects)stamp<<'|'<<o.kind<<o.target<<o.x<<','<<o.y<<o.global<<o.settle<<':'<<o.sourceId;
+ // The renderer takes its colours from host+0x84, the timeline being played (0x43FBC0, 0x43FC50),
+ // and only compares it. A room of another timeline names that one; any other names the timeline
+ // being played, copied rather than borrowed: switching timeline frees a long name's buffer.
+ std::string timeline=s.timeline;
+ if(timeline.empty()){
+  const auto live=liveHost+0x84;const auto size=at<uint32_t>(live,16),capacity=at<uint32_t>(live,20);
+  if(size>240||capacity<size){error="Scene unavailable";return false;}
+  timeline.assign((const char*)(capacity<16?live:at<uintptr_t>(live)),size);
+ }
+ std::ostringstream stamp;stamp.precision(9);stamp<<liveHost<<'|'<<key<<'|'<<depth<<'|'<<s.nativeDepth<<'|'<<s.live<<'|'<<timeline;for(size_t i=0;i<300;i++)stamp<<','<<s.tiles[i].kind<<':'<<indices[i];for(const auto& o:s.objects)stamp<<'|'<<o.kind<<o.target<<o.x<<','<<o.y<<o.global<<o.settle<<':'<<o.sourceId;
  if(room&&renderer&&signature==stamp.str())return true;
  clearNativeScene();source=liveHost;signature=stamp.str();memcpy(host.data(),(void*)liveHost,host.size());
- // Replacing the copy's string drops its pointer to any heap buffer without freeing it: the
- // live host still owns that buffer, and this copy is never destroyed.
- if(!s.timeline.empty()){auto name=host.data()+0x84;memset(name,0,16);memcpy(name,s.timeline.data(),s.timeline.size());at<uint32_t>((uintptr_t)name,16)=(uint32_t)s.timeline.size();at<uint32_t>((uintptr_t)name,20)=15;}
+ // Replacing the copy's string drops its pointer to any heap buffer without freeing it: the live
+ // host still owns that buffer, and this copy is never destroyed. A name too long for the string's
+ // own buffer points at timelineName instead, which lives as long as the renderer that reads it.
+ {
+  timelineName=timeline;auto name=(uintptr_t)host.data()+0x84;memset((void*)name,0,16);
+  if(timelineName.size()<16){memcpy((void*)name,timelineName.data(),timelineName.size());at<uint32_t>(name,20)=15;}
+  else {at<const char*>(name)=timelineName.c_str();at<uint32_t>(name,20)=(uint32_t)timelineName.size();}
+  at<uint32_t>(name,16)=(uint32_t)timelineName.size();
+ }
  auto begin=at<uintptr_t>(liveHost,0x54),end=at<uintptr_t>(liveHost,0x58);if(end<=begin||end-begin>28*4096){error="Invalid source room stack";return false;}
  // Only metadata strings/maps are borrowed. The renderer never owns or destroys this host copy.
  int count=(end-begin)/28;int desired=s.nativeDepth>=0?s.nativeDepth+1:count+depth;

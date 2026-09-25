@@ -39,21 +39,39 @@ static uint64_t frame=0;
 static void log(const char* fmt,...);
 static std::string missionPath,gameRoot;
 static uintptr_t roomHost=0;
-// A flame's room is left empty until it is looked at: where it leads is worked out for the one in use.
-struct ChestView{uintptr_t id;float x,y;std::string room;uintptr_t owner;bool wet;bool outward=false;bool yield=false;bool paradox=false;bool jar=false;std::string jarName;};
+// A room a preview shows, and how to work out again where that is as things move. It is one of:
+// - a room its script builds, inside a chest (the default);
+// - the room a jar keeps (jar, jarName);
+// - a room of a stack (ancestors>=0), counted out from its top: the stack being played, or the one
+//   the timeline named in stack was left with;
+// - a room built alone as the first of its timeline (see aloneRoom): a paradox room, or the first
+//   room of a timeline a cauldron switches to.
+// depth is relative to the room being played, not the engine's absolute depth: carrying a pinned
+// chest out through a flame builds no room, so the pin survives a change of the room it counts from.
+// A room of the stack being played takes its depth from ancestors instead.
+// A paradox leaves the whole stack behind for a timeline named after its room, and a cauldron
+// switches to the timeline it names, so a room in another timeline keeps that name in timeline and
+// counts depth from that timeline's first room, which is at depth 0. paradox marks the paradox room
+// and the rooms inside it.
+// A room reached through a flame of a stack keeps which room's flame it was, counted out from the
+// top (exitFrom), and which flames on the way out were green, so it can follow where that walk leads.
+// A room a cauldron leads to keeps the timeline it switches to in cauldron, together with through,
+// the cauldron the room being played is left through.
+struct Place {std::string room;bool wet=false;int ancestors=-1;int depth=1;std::string timeline;int exitFrom=-1;uint32_t greens=0;bool jar=false;std::string jarName;bool paradox=false;std::string stack,cauldron;uintptr_t through=0;};
+// Something in the room being played that a preview opens from: a chest, a jar, a cauldron or a
+// flame (outward, green when yield). Where it leads is worked out for the one in use, into root; an
+// empty room is nowhere a preview can show. A cauldron keeps the timeline it switches to.
+struct ChestView{uintptr_t id;float x,y;std::string room;uintptr_t owner;bool wet;bool outward=false;bool yield=false;bool jar=false;std::string jarName;bool cauldron=false;std::string timeline;Place root;};
 static std::vector<ChestView> chests;
 static bool pinned=false,previewWet=false;
 static uintptr_t pinnedId=0;
 static uintptr_t hoveredId=0;
-// depth is relative to the room being played, not the engine's absolute depth: carrying a pinned
-// chest out through a flame builds no room, so the pin survives a change of the room it counts from.
-// A live step (ancestors>=0) takes its depth from ancestors instead.
-// A paradox leaves the whole stack behind for a timeline named after its room, so a step in one
-// keeps that name in timeline and counts depth from the paradox room, which is at depth 0.
-// A step through a flame of the stack keeps which room's flame it was, counted out from the room
-// being played, and which flames on the way out were green, so it can follow where that walk leads
-// as things move.
-struct PreviewStep {std::string room;bool wet=false;int ancestors=-1;int depth=1;uintptr_t chestId=0;peek::Snapshot parentSnapshot{};std::string timeline;int exitFrom=-1;uint32_t greens=0;bool jar=false;std::string jarName;};
+// The path is the history of one hypothetical walk, one step per room. A step remembers what it was
+// opened through (chestId) and the room it was opened from as it was shown then (parentSnapshot),
+// so it can check that the way in is still there. A cauldron back into a timeline the walk has been
+// in returns to the room it was last in there, so that step is shown again: mirror is its index, and
+// the step shows whatever that one shows.
+struct PreviewStep:Place {uintptr_t chestId=0;peek::Snapshot parentSnapshot{};int mirror=-1;};
 static std::vector<PreviewStep> previewPath;
 // What going back stepped out of, so the side buttons can walk the path in both directions.
 static std::vector<PreviewStep> forwardPath;
@@ -123,36 +141,50 @@ static void syncCursorVisibility(void* window){
 using ChestTransform=void(__thiscall*)(void*);
 static ChestTransform originalChestTransform;
 static ChestTransform originalJarTransform;
+static ChestTransform originalCauldronTransform;
 static ChestTransform originalExitTransform;
-static void __fastcall exitTransformHook(void* object,void*){
-    originalExitTransform(object);
-    if(peek::nativeRenderWork()||!roomHost||chests.size()>128)return;
-    const auto* b=(const unsigned char*)object;auto owner=*(uintptr_t*)(b+4);
-    // Door +0x58 marks the green flame.
-    ChestView item{(uintptr_t)object,*(const float*)(b+8),*(const float*)(b+12),"",owner,false,true,b[0x58]!=0};
-    if(!std::isfinite(item.x)||!std::isfinite(item.y))return;
+// Every entity keeps its owner room at +0x04 and its position at +0x08/+0x0C.
+static ChestView placed(const void* object){
+    const auto* b=(const unsigned char*)object;
+    ChestView item{(uintptr_t)object,*(const float*)(b+8),*(const float*)(b+12),"",*(const uintptr_t*)(b+4),false};
+    return item;
+}
+// Keeps what a draw transform just placed, once per object, for this frame's hit test.
+static void observe(const ChestView& item){
+    if(!std::isfinite(item.x)||!std::isfinite(item.y)||chests.size()>128)return;
     auto it=std::find_if(chests.begin(),chests.end(),[&](const ChestView& c){return c.id==item.id;});
     if(it==chests.end())chests.push_back(item);else *it=item;
+}
+static void __fastcall exitTransformHook(void* object,void*){
+    originalExitTransform(object);
+    if(peek::nativeRenderWork()||!roomHost)return;
+    // Door +0x58 marks the green flame.
+    auto item=placed(object);item.outward=true;item.yield=((const unsigned char*)object)[0x58]!=0;
+    observe(item);
 }
 static void __fastcall chestTransformHook(void* object,void*){
     originalChestTransform(object);
     if(peek::nativeRenderWork())return;
     const auto* b=(const unsigned char*)object;
-    ChestView item{(uintptr_t)object,*(const float*)(b+8),*(const float*)(b+12),oldString(b+0x4c),*(uintptr_t*)(b+4),(*(uint32_t*)(b+0x38)&0x10)!=0};
-    if(item.room.empty()||!std::isfinite(item.x)||!std::isfinite(item.y)||chests.size()>128)return;
-    auto it=std::find_if(chests.begin(),chests.end(),[&](const ChestView& c){return c.id==item.id;});
-    if(it==chests.end())chests.push_back(item);else *it=item;
+    auto item=placed(object);item.room=oldString(b+0x4c);item.wet=(*(const uint32_t*)(b+0x38)&0x10)!=0;
+    if(!item.room.empty())observe(item);
 }
 static void __fastcall jarTransformHook(void* object,void*){
     originalJarTransform(object);
-    if(peek::nativeRenderWork()||!roomHost||chests.size()>128)return;
+    if(peek::nativeRenderWork()||!roomHost)return;
     const auto* b=(const unsigned char*)object;
     if(b[0x44]||*(const int*)(b+0x64)==2)return;
-    ChestView item{(uintptr_t)object,*(const float*)(b+8),*(const float*)(b+12),"",*(uintptr_t*)(b+4),false};
-    item.jar=true;item.jarName=oldString(b+0x4c);
-    if(!item.owner||!std::isfinite(item.x)||!std::isfinite(item.y))return;
-    auto it=std::find_if(chests.begin(),chests.end(),[&](const ChestView& c){return c.id==item.id;});
-    if(it==chests.end())chests.push_back(item);else *it=item;
+    auto item=placed(object);item.jar=true;item.jarName=oldString(b+0x4c);
+    if(item.owner)observe(item);
+}
+// Cauldron +0x4C names the timeline its switch (event 9, 0x440860) goes to.
+static void __fastcall cauldronTransformHook(void* object,void*){
+    originalCauldronTransform(object);
+    if(peek::nativeRenderWork()||!roomHost)return;
+    const auto* b=(const unsigned char*)object;
+    if(b[0x44])return;
+    auto item=placed(object);item.cauldron=true;item.timeline=oldString(b+0x4c);
+    if(item.owner&&!item.timeline.empty())observe(item);
 }
 using BuildRoom=uintptr_t(__thiscall*)(void*,void*,void*,uint32_t);
 static BuildRoom originalBuildRoom;
@@ -312,48 +344,104 @@ static void imageQuad(float x,float y,float w,float h){
 static bool dismissedHover=false;
 static void clearPreview(){nativeTest=false;peek::requestNativeMirror(false);pinned=false;previewPath.clear();forwardPath.clear();previewKey.clear();dismissedHover=true;heldFrame=0;peek::closePreviewWindow();}
 static bool previewPortal(const peek::Object& o){return o.kind=="player"||o.kind=="yield";}
-static int relativeDepth(const PreviewStep& s){return s.ancestors>=0?-s.ancestors:s.depth;}
-static bool paradoxRoom(const PreviewStep& s){return !s.timeline.empty()&&!s.depth;}
-// How deep a step is, as the preview says it.
-static std::string depthLabel(const PreviewStep& s){
+static int relativeDepth(const Place& s){return s.ancestors>=0&&s.stack.empty()?-s.ancestors:s.depth;}
+// Built alone as the first room of its timeline, which gives it no flame: a paradox room, or the
+// first room of a timeline a cauldron switches to before that timeline has a stack to go back to.
+static bool aloneRoom(const Place& s){return !s.timeline.empty()&&!s.depth&&s.ancestors<0;}
+// How deep a step is, as the preview says it. A timeline's name comes from the level script and the
+// game never shows it, so a room in another timeline is only marked as that.
+static std::string depthLabel(const Place& s){
     if(s.timeline.empty())return "Depth "+std::to_string(relativeDepth(s));
-    return s.depth?"Paradox depth "+std::to_string(s.depth):"Paradox";
+    const auto depth=s.depth?" depth "+std::to_string(s.depth):std::string();
+    return (s.paradox?"Paradox":"Other timeline")+depth;
 }
 // The timeline being played, read each frame: it names the colours a room is drawn in.
 static std::string timelinePlayed;
+static const std::string& stepTimeline(const Place& s){return s.timeline.empty()?timelinePlayed:s.timeline;}
 // What a step shows. A click in the separate window carries the view it was aimed at, so a
 // click that arrives after the window has moved on is not applied to a different room.
-static std::string stepKey(const PreviewStep& s){return missionPath+"|"+(s.timeline.empty()?timelinePlayed:s.timeline)+"|"+s.room+"|"+(s.jar?"jar:"+s.jarName:s.ancestors>=0?"live:"+std::to_string(s.ancestors):s.wet?"wet":"dry")+(paradoxRoom(s)?"|paradox":"");}
-static std::string stepView(const PreviewStep& s){return stepKey(s)+"|"+std::to_string(relativeDepth(s));}
-// A step through a flame: out to a room of the stack, or into a paradox room.
-static PreviewStep exitStep(const std::string& room,bool paradox,int ancestors,int from,uint32_t greens){
-    PreviewStep s;s.room=room;s.exitFrom=from;s.greens=greens;
-    if(paradox){s.timeline=room;s.depth=0;}else s.ancestors=ancestors;
+static std::string stepKey(const Place& s){
+    const auto state=s.jar?"jar:"+s.jarName:s.ancestors>=0?(s.stack.empty()?"live:":"saved:"+s.stack+":")+std::to_string(s.ancestors):s.wet?"wet":"dry";
+    return missionPath+"|"+stepTimeline(s)+"|"+s.room+"|"+state+(aloneRoom(s)?s.paradox?"|paradox":"|alone":"");
+}
+static std::string stepView(const Place& s){return stepKey(s)+"|"+std::to_string(relativeDepth(s));}
+static PreviewStep stepAt(const Place& place){PreviewStep s;static_cast<Place&>(s)=place;return s;}
+// Step j shown again later on the path: it shows what that step shows, and mirrors, in the end,
+// the step that is not itself shown again. What s was opened through, and from, stays its own.
+static void showAgain(PreviewStep& s,size_t j){
+    const auto& from=previewPath[j];
+    static_cast<Place&>(s)=from;s.mirror=from.mirror>=0?from.mirror:(int)j;
+}
+// The room being played, as a step out of a chest's room reaches it.
+static Place playedPlace(const std::string& room){Place s;s.room=room;s.ancestors=0;s.depth=0;return s;}
+// Through a flame: out to a room of the stack, or into a paradox room. stack names the timeline
+// whose put-aside stack the flame is in, when a cauldron leads there.
+static Place exitPlace(const peek::ExitTarget& target,int from,uint32_t greens,const std::string& stack){
+    Place s;s.room=target.room;s.exitFrom=from;s.greens=greens;s.stack=stack;
+    if(target.paradox){s.timeline=target.room;s.depth=0;s.paradox=true;}
+    else {s.ancestors=target.ancestors;if(!stack.empty()){s.timeline=stack;s.depth=target.depth;}}
     return s;
 }
-// What a step's room restores: a paradox room reached through a flame of the stack takes what that
-// walk out leaves saved under its name; anything else what is saved now.
-static peek::GlobalState stepGlobals(const PreviewStep& s,uintptr_t owner){
-    if(paradoxRoom(s)&&s.exitFrom>=0){
-        auto target=peek::readExitTarget(roomHost,owner,s.exitFrom,s.greens);
+// Where a cauldron into timeline leads. Into the timeline being played, that is the room being
+// played; otherwise the room on top of the stack that timeline was left with, or the room the
+// switch builds fresh when there is none or the room it returns to has lost its way back.
+// through is the cauldron the room being played was left through, which its player needs back.
+static bool cauldronPlace(const std::string& timeline,uintptr_t owner,Place& out,uintptr_t through){
+    auto target=peek::readCauldronTarget(roomHost,owner,timeline,through);
+    if(!target.available)return false;
+    Place s;s.room=target.room;s.cauldron=timeline;s.through=through;s.depth=0;
+    if(target.same)s.ancestors=0;
+    else if(target.fresh){s.timeline=target.paradox?target.room:timeline;s.paradox=target.paradox;}
+    else {s.timeline=s.stack=timeline;s.ancestors=0;s.depth=target.depth;}
+    out=std::move(s);return true;
+}
+static peek::GlobalState changedGlobals(const std::string& error){peek::GlobalState changed;changed.error=error.empty()?"Scene changed":error;return changed;}
+// What a room built from its script restores: a paradox room reached through a flame takes what
+// that walk out leaves saved under its name, and a room a cauldron builds fresh what is saved under
+// its name once the switch has put the room being played aside; anything else what is saved now.
+static peek::GlobalState stepGlobals(const Place& s,uintptr_t owner){
+    if(s.paradox&&aloneRoom(s)&&s.exitFrom>=0){
+        auto target=peek::readExitTarget(roomHost,owner,s.exitFrom,s.greens,s.stack);
         if(target.available&&target.paradox&&target.room==s.room)return target.globals;
-        peek::GlobalState changed;changed.error=target.available?"Scene changed":target.error;return changed;
+        return changedGlobals(target.error);
+    }
+    if(!s.cauldron.empty()&&aloneRoom(s)){
+        auto target=peek::readCauldronTarget(roomHost,owner,s.cauldron,s.through);
+        if(target.available&&target.fresh&&target.paradox==s.paradox&&target.room==s.room)return target.globals;
+        return changedGlobals(target.error);
     }
     return peek::readGlobals(roomHost,owner,s.room);
 }
-// An outer room as walking out finds it. A room puts its globals aside when it is left and takes
-// them back when it is returned to, so through a flame it has them again.
-static peek::Snapshot outerRoom(const PreviewStep& s,uintptr_t owner,const peek::Snapshot& appearance){
-    auto room=peek::readRoomSnapshot(roomHost,owner,s.ancestors,appearance);
-    if(s.exitFrom<0||!room.error.empty())return room;
-    auto target=peek::readExitTarget(roomHost,owner,s.exitFrom,s.greens);
-    if(!target.available||target.paradox){room.tiles={};room.objects.clear();room.error=target.available?"Scene changed":target.error;return room;}
+// A room of a stack as walking out finds it. A room puts its globals aside when it is left and
+// takes them back when it is returned to, so through a flame it has them again, and so does the room
+// a cauldron returns to.
+static peek::Snapshot outerRoom(const Place& s,uintptr_t owner,const peek::Snapshot& appearance){
+    auto room=peek::readRoomSnapshot(roomHost,owner,s.ancestors,appearance,s.stack);
+    if(!room.error.empty())return room;
+    auto changed=[&](const std::string& error){room.tiles={};room.objects.clear();room.error=error.empty()?"Scene changed":error;return room;};
+    peek::GlobalState back;
+    if(s.exitFrom>=0){
+        auto target=peek::readExitTarget(roomHost,owner,s.exitFrom,s.greens,s.stack);
+        if(!target.available||target.paradox)return changed(target.error);
+        back=std::move(target.globals);
+    }else if(!s.stack.empty()){
+        auto target=peek::readCauldronTarget(roomHost,owner,s.cauldron,s.through);
+        if(!target.available||target.same||target.fresh||target.room!=s.room||target.depth!=s.depth)return changed(target.error);
+        back=std::move(target.globals);
+    }else if(!s.cauldron.empty()){
+        // Into the timeline being played, the room being played puts its globals aside and takes
+        // back what is saved under its name, so those replace the ones it has now.
+        auto target=peek::readCauldronTarget(roomHost,owner,s.cauldron,s.through);
+        if(!target.available||!target.same||target.room!=s.room)return changed(target.error);
+        room.objects.erase(std::remove_if(room.objects.begin(),room.objects.end(),[](const peek::Object& o){return o.global;}),room.objects.end());
+        room.hasGlobals=false;back=std::move(target.globals);
+    }else return room;
     // The restore places each one the way a spawn is placed (0x440CD0 then 0x41C130).
-    for(auto o:target.globals.objects){o.settle=true;room.objects.push_back(std::move(o));}
-    room.hasGlobals|=!target.globals.objects.empty();
+    for(auto o:back.objects){o.settle=true;room.objects.push_back(std::move(o));}
+    room.hasGlobals|=!back.objects.empty();
     return room;
 }
-static peek::Snapshot jarRoom(const PreviewStep& s,uintptr_t owner,const peek::Snapshot& appearance){
+static peek::Snapshot jarRoom(const Place& s,uintptr_t owner,const peek::Snapshot& appearance){
     auto reference=peek::readJarReference(roomHost,owner,s.jarName);
     if(!reference.error.empty()||reference.name!=s.room){peek::Snapshot changed;changed.error=reference.error.empty()?"Scene changed":reference.error;return changed;}
     if(reference.room)return peek::readJarSnapshot(roomHost,owner,s.jarName,appearance);
@@ -361,52 +449,159 @@ static peek::Snapshot jarRoom(const PreviewStep& s,uintptr_t owner,const peek::S
     if(!globals.available)room.error=globals.error;
     return room;
 }
+// The room a step shows, as things are now: read where the game keeps it, or built from its
+// script, which appearance holds, with the globals it would take back.
+static peek::Snapshot stepRoom(const Place& s,uintptr_t owner,const peek::Snapshot& appearance){
+    if(s.ancestors>=0)return outerRoom(s,owner,appearance);
+    peek::Snapshot room;
+    if(s.jar)room=jarRoom(s,owner,appearance);
+    else {
+        room=appearance;auto globals=stepGlobals(s,owner);
+        if(globals.available)peek::applyGlobals(room,globals);else if(room.error.empty())room.error=globals.error;
+    }
+    // A room built alone is the only room of its stack, and the rooms inside it count from it.
+    if(!s.timeline.empty())room.nativeDepth=s.depth;
+    else {const auto source=peek::readRoomReference(roomHost,owner,0);room.nativeDepth=source.depth<0?-1:source.depth+s.depth;}
+    return room;
+}
 enum class PreviewMove {None,Return,Enter};
-// Where clicking o inside the preview leads: back to the step before, or into next.
+// Where clicking o inside the preview leads: back to the earlier step to, or into next.
 // The click and the pinned hover line both ask here, so the line says what the click does.
-static PreviewMove previewMove(const peek::Object& o,PreviewStep& next){
+static PreviewMove previewMove(const peek::Object& o,PreviewStep& next,size_t& to){
     if(previewPath.empty())return PreviewMove::None;
     const auto& here=previewPath.back();
+    const bool full=previewPath.size()>=8;
+    uintptr_t owner=0;for(const auto& c:chests)if(c.id==pinnedId)owner=c.owner;
     if(previewPortal(o)){
         const bool yield=o.kind=="yield";
-        // A paradox room is built alone on its stack, which gives it no flame.
-        if(paradoxRoom(here))return PreviewMove::None;
-        if(here.ancestors<0&&previewPath.size()>1)return PreviewMove::Return;
-        if(previewPath.size()>=8)return PreviewMove::None;
-        uintptr_t owner=0;for(const auto& c:chests)if(c.id==pinnedId)owner=c.owner;
-        // Out of a chest's room is back in the room being played.
+        // A room built alone on its stack has no flame.
+        if(aloneRoom(here))return PreviewMove::None;
+        // Out of a chest's or a jar's room is back in the room it was opened from: the step before
+        // it, or before the step it shows again, or else the room being played.
         if(here.ancestors<0){
+            const size_t shown=here.mirror>=0?(size_t)here.mirror:previewPath.size()-1;
+            if(shown>0&&shown==previewPath.size()-1){to=shown-1;return PreviewMove::Return;}
+            if(full)return PreviewMove::None;
+            if(shown>0){showAgain(next,shown-1);return PreviewMove::Enter;}
             auto current=peek::readRoomReference(roomHost,owner,0);
             if(!current.error.empty())return PreviewMove::None;
-            next={current.name,false,0,0};return PreviewMove::Enter;
+            next=stepAt(playedPlace(current.name));return PreviewMove::Enter;
         }
+        if(full)return PreviewMove::None;
         const uint32_t greens=here.greens|(yield&&here.ancestors<32?1u<<here.ancestors:0u);
-        auto target=peek::readExitTarget(roomHost,owner,here.ancestors,greens);
+        auto target=peek::readExitTarget(roomHost,owner,here.ancestors,greens,here.stack);
         if(!target.available)return PreviewMove::None;
-        next=exitStep(target.room,target.paradox,target.ancestors,here.ancestors,greens);return PreviewMove::Enter;
+        next=stepAt(exitPlace(target,here.ancestors,greens,here.stack));return PreviewMove::Enter;
     }
-    if((o.kind!="chest"&&o.kind!="jar")||previewPath.size()>=8||(o.kind=="chest"&&o.target.empty()))return PreviewMove::None;
-    next={o.target,peek::wetAt(preview,o.x,o.y),-1,relativeDepth(here)+1,o.sourceId};next.timeline=here.timeline;
+    if(o.kind=="cauldron"){
+        if(o.target.empty())return PreviewMove::None;
+        // A timeline this path has been in was put aside with the room it was last in on top, and
+        // the switch goes back to that room, which the path then shows again: into this room's own
+        // timeline, it stays in this room. A flame walk that ended in a paradox left the timeline it
+        // walked out of with the room it stopped in on top, still without its way back, and where
+        // switching back there leads is not predicted.
+        for(size_t j=previewPath.size();j-->0;){
+            const auto& s=previewPath[j];
+            if(s.paradox&&s.exitFrom>=0&&aloneRoom(s)&&(s.stack.empty()?timelinePlayed:s.stack)==o.target)return PreviewMove::None;
+            if(stepTimeline(s)!=o.target)continue;
+            if(j+1==previewPath.size()||full)return PreviewMove::None;
+            showAgain(next,j);next.chestId=o.sourceId;return PreviewMove::Enter;
+        }
+        // Otherwise the switch starts from the stacks as they are now. Into the timeline being
+        // played, the path's first step cannot be in that timeline, so it is the cauldron that
+        // stack's player went in through: a flame walk into a paradox has declined above.
+        Place place;
+        if(full||!cauldronPlace(o.target,owner,place,previewPath[0].cauldron.empty()?0:previewPath[0].chestId))return PreviewMove::None;
+        next=stepAt(place);next.chestId=o.sourceId;return PreviewMove::Enter;
+    }
+    if((o.kind!="chest"&&o.kind!="jar")||full||(o.kind=="chest"&&o.target.empty()))return PreviewMove::None;
+    next=PreviewStep{};next.room=o.target;next.wet=peek::wetAt(preview,o.x,o.y);next.depth=relativeDepth(here)+1;next.chestId=o.sourceId;
+    next.timeline=here.timeline;next.paradox=here.paradox;
     if(o.kind=="jar"){
-        uintptr_t owner=0;for(const auto& c:chests)if(c.id==pinnedId)owner=c.owner;
         auto target=peek::readJarReference(roomHost,owner,o.target);
         if(!target.error.empty())return PreviewMove::None;
         next.room=target.name;next.wet=false;next.jar=true;next.jarName=o.target;
     }
     return PreviewMove::Enter;
 }
-// A flame back to the step before is Back, so Forward can undo it. Any new step starts a new
-// branch, like a link in a browser: Forward must not graft on a step from the one left behind.
+// A flame back to the step before is Back, so Forward can undo it: walking out really leaves that
+// room. Any new step starts a new branch, like a link in a browser: Forward must not graft on a
+// step from the one left behind.
 static void enterPreview(const peek::Object& o){
-    PreviewStep next;auto move=previewMove(o,next);
-    if(move==PreviewMove::Return){forwardPath.push_back(std::move(previewPath.back()));previewPath.pop_back();}
+    PreviewStep next;size_t to=0;auto move=previewMove(o,next,to);
+    if(move==PreviewMove::Return)while(previewPath.size()>to+1){forwardPath.push_back(std::move(previewPath.back()));previewPath.pop_back();}
     else if(move==PreviewMove::Enter){if(!previewPortal(o))next.parentSnapshot=preview;forwardPath.clear();previewPath.push_back(std::move(next));}
 }
-static PreviewStep rootStep(const ChestView& c){auto s=c.outward?exitStep(c.room,c.paradox,1,0,c.yield?1u:0u):PreviewStep{c.room,c.wet};s.jar=c.jar;s.jarName=c.jarName;return s;}
-// Where a flame of the room being played leads depends on what is where right now.
-static void resolveExit(ChestView& c){
-    auto target=peek::readExitTarget(roomHost,c.owner,0,c.yield?1u:0u);
-    c.room=target.available?target.room:"";c.paradox=target.paradox;
+// Where something in the room being played leads, worked out again for the one in use: a flame and
+// a cauldron by what is where right now, a jar by what it keeps. A cauldron's first step keeps the
+// cauldron, which the room being played is left through.
+static void resolveTarget(ChestView& c){
+    auto& s=c.root;s=Place{};
+    if(c.cauldron){if(!cauldronPlace(c.timeline,c.owner,s,c.id))s.room.clear();}
+    else if(c.outward){
+        const uint32_t greens=c.yield?1u:0u;auto target=peek::readExitTarget(roomHost,c.owner,0,greens);
+        if(target.available)s=exitPlace(target,0,greens,{});
+    }else if(c.jar){auto ref=peek::readJarReference(roomHost,c.owner,c.jarName);if(ref.error.empty())s.room=ref.name;s.jar=true;s.jarName=c.jarName;}
+    else {s.room=c.room;s.wet=c.wet;}
+    c.room=s.room;
+}
+static PreviewStep rootStep(const ChestView& c){auto s=stepAt(c.root);if(c.cauldron)s.chestId=c.id;return s;}
+static const char* kindOf(const ChestView& c){return c.outward?"player":c.cauldron?"cauldron":c.jar?"jar":"chest";}
+// Follows every step after the first to where it leads now. A step whose way in is gone ends the
+// path before it; a step that now leads somewhere else is followed there, and ends the path after it.
+static void revalidatePath(uintptr_t owner){
+    auto cut=[](size_t keep){previewPath.resize(keep);forwardPath.clear();};
+    // What step i was opened through, of kind, in the room it was opened from as that room is now.
+    peek::Snapshot parent;
+    auto opening=[&](size_t i,const char* kind,peek::Object& out){
+        const auto& child=previewPath[i];parent=stepRoom(previewPath[i-1],owner,child.parentSnapshot);
+        auto entry=std::find_if(parent.objects.begin(),parent.objects.end(),[&](const peek::Object& o){return o.sourceId==child.chestId&&o.kind==kind;});
+        if(!parent.error.empty()||entry==parent.objects.end())return false;
+        out=*entry;return true;
+    };
+    for(size_t i=1;i<previewPath.size();i++){
+        auto& child=previewPath[i];peek::Object entry;
+        // A step shown again shows what its step shows now, which was worked out above it, as long
+        // as the cauldron it was opened through is still there and still leads into that timeline.
+        if(child.mirror>=0){
+            if(child.chestId&&(!opening(i,"cauldron",entry)||entry.target!=stepTimeline(previewPath[child.mirror]))){cut(i);break;}
+            const auto before=stepView(child);showAgain(child,(size_t)child.mirror);
+            if(stepView(child)!=before){cut(i+1);break;}
+            continue;
+        }
+        // A step through a flame of a stack follows that flame the same way.
+        if(child.exitFrom>=0){
+            auto target=peek::readExitTarget(roomHost,owner,child.exitFrom,child.greens,child.stack);
+            if(!target.available){cut(i);break;}
+            if(target.paradox!=child.paradox||(target.paradox&&target.room!=child.room)){
+                child=stepAt(exitPlace(target,child.exitFrom,child.greens,child.stack));cut(i+1);break;
+            }
+            // An outer step names whatever room is that far out now: carrying the pinned chest out
+            // through a flame builds no room, so the same step can come to mean another one.
+            // A paradox room stays at depth 0 of its own timeline.
+            child.room=target.room;if(!target.paradox&&!child.stack.empty())child.depth=target.depth;continue;
+        }
+        // A cauldron has to be where it was, and its step follows where its switch lands now.
+        if(!child.cauldron.empty()){
+            if(child.chestId&&(!opening(i,"cauldron",entry)||entry.target!=child.cauldron)){cut(i);break;}
+            Place now;
+            if(!cauldronPlace(child.cauldron,owner,now,child.through)){cut(i);break;}
+            if(stepView(now)!=stepView(child)){static_cast<Place&>(child)=std::move(now);cut(i+1);break;}
+            continue;
+        }
+        if(child.ancestors>=0){auto ref=peek::readRoomReference(roomHost,owner,child.ancestors);if(ref.error.empty()&&ref.name!=child.room)child.room=ref.name;continue;}
+        if(child.jar){
+            auto ref=peek::readJarReference(roomHost,owner,child.jarName);
+            if(!ref.error.empty()){cut(i);break;}
+            if(ref.name!=child.room){child.room=ref.name;cut(i+1);break;}
+        }
+        if(!child.chestId)continue;
+        if(!opening(i,child.jar?"jar":"chest",entry)){cut(i);break;}
+        if(child.jar){if(entry.target!=child.jarName){cut(i);break;}continue;}
+        // A chest moved across water leads into the other branch of its room.
+        const bool wet=peek::wetAt(parent,entry.x,entry.y);
+        if(child.room!=entry.target||child.wet!=wet){child.room=entry.target;child.wet=wet;cut(i+1);break;}
+    }
 }
 static const peek::RoomArt* currentArt=nullptr;
 // The inset as it was last drawn, and where. Its image quad samples the texture, which keeps
@@ -426,14 +621,16 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     // pointed ignores focus: after a close from the separate window, it is what the pointer rests on.
     const bool gameFocused=GetForegroundWindow()==gameWindow;
     ChestView* hovered=nullptr;ChestView* pinnedChest=nullptr;ChestView* pointed=nullptr;
-    for(auto& c:chests){float x=left+(c.x-.5f)*cell,y=top+(c.y-(c.outward?.4f:.8f))*cell;
-        if(mouse.x>=x-8*u&&mouse.x<=x+cell+8*u&&mouse.y>=y-8*u&&mouse.y<=y+cell*(c.outward?1.4f:1.f)+8*u){pointed=&c;if(gameFocused&&!overInset)hovered=&c;}
+    // Each one is hovered where the game draws it, with a margin for the pointer.
+    for(auto& c:chests){peek::Reach r{};peek::reachOf(kindOf(c),r);
+        const float x0=left+(c.x-r.half)*cell-8*u,x1=left+(c.x+r.half)*cell+8*u,y0=top+(c.y-r.above)*cell-8*u,y1=top+(c.y+r.below)*cell+8*u;
+        if(mouse.x>=x0&&mouse.x<=x1&&mouse.y>=y0&&mouse.y<=y1){pointed=&c;if(gameFocused&&!overInset)hovered=&c;}
         if(c.id==pinnedId)pinnedChest=&c;
     }
     timelinePlayed=peek::readTimeline(roomHost);
-    // A flame that leads nowhere a preview can show is not there to hover or keep pinned.
-    for(auto* c:{hovered,pinnedChest})if(c&&c->outward&&c->room.empty())resolveExit(*c);
-    for(auto* c:{hovered,pinnedChest})if(c&&c->jar){auto ref=peek::readJarReference(roomHost,c->owner,c->jarName);c->room=ref.error.empty()?ref.name:"";}
+    // Something that leads nowhere a preview can show is not there to hover or keep pinned.
+    if(hovered)resolveTarget(*hovered);
+    if(pinnedChest&&pinnedChest!=hovered)resolveTarget(*pinnedChest);
     if(hovered&&hovered->room.empty())hovered=nullptr;
     if(pinnedChest&&pinnedChest->room.empty())pinnedChest=nullptr;
     // Closing leaves the chest under the pointer dismissed until the pointer moves to another one,
@@ -463,68 +660,25 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     if((clicked||open)&&hovered&&(!pinned||clickPopout)){if(pinnedId!=hovered->id){previewPath.clear();forwardPath.clear();}pinned=true;pinnedId=hovered->id;pinnedChest=hovered;dismissedHover=false;if(previewPath.empty())previewPath.push_back(rootStep(*hovered));}
     ChestView* active=pinned?pinnedChest:hovered;
     if(previewPath.empty()){peek::requestNativeMirror(false);return;}
-    // A flame's first step follows the flame, into a paradox and back out of one as things move.
-    if(active&&(previewPath[0].wet!=active->wet||previewPath[0].room!=active->room||previewPath[0].jarName!=active->jarName||previewPath[0].timeline.empty()==active->paradox)){
-        previewPath.assign(1,rootStep(*active));forwardPath.clear();
-    }
-    // Revalidate live/global chests along the path, not just the visible room.
-    // A removed entry returns to its parent; movement across water updates its branch.
+    // A flame's or a cauldron's first step follows it, into a paradox and back out of one, as
+    // things move.
+    if(active){auto root=rootStep(*active);if(stepView(root)!=stepView(previewPath[0])){previewPath.assign(1,std::move(root));forwardPath.clear();}}
+    // The rest of the path follows what it was opened through, not just the room shown.
     const uintptr_t owner=active?active->owner:0;
-    for(size_t i=1;i<previewPath.size();i++){
-        auto& child=previewPath[i];
-        // A step through a flame of the stack follows that flame the same way.
-        if(child.exitFrom>=0){
-            auto target=peek::readExitTarget(roomHost,owner,child.exitFrom,child.greens);
-            if(!target.available){previewPath.resize(i);forwardPath.clear();break;}
-            if(target.paradox!=!child.timeline.empty()||(target.paradox&&target.room!=child.room)){
-                child=exitStep(target.room,target.paradox,target.ancestors,child.exitFrom,child.greens);previewPath.resize(i+1);forwardPath.clear();break;
-            }
-            // An outer step names whatever room is that far out now: carrying the pinned chest out
-            // through a flame builds no room, so the same step can come to mean another one.
-            child.room=target.room;continue;
-        }
-        if(child.ancestors>=0){auto ref=peek::readRoomReference(roomHost,owner,child.ancestors);if(ref.error.empty()&&ref.name!=child.room)child.room=ref.name;continue;}
-        if(child.jar){
-            auto ref=peek::readJarReference(roomHost,owner,child.jarName);
-            if(!ref.error.empty()){previewPath.resize(i);forwardPath.clear();break;}
-            if(ref.name!=child.room){child.room=ref.name;previewPath.resize(i+1);forwardPath.clear();break;}
-        }
-        if(!child.chestId)continue;
-        const auto& parent=previewPath[i-1];auto state=child.parentSnapshot;
-        if(parent.ancestors>=0)state=outerRoom(parent,owner,state);
-        else if(parent.jar)state=jarRoom(parent,owner,state);
-        else {
-            auto globals=stepGlobals(parent,owner);
-            if(!globals.available)state.error=globals.error;else peek::applyGlobals(state,globals);
-        }
-        auto entry=std::find_if(state.objects.begin(),state.objects.end(),[&](const peek::Object& o){return o.sourceId==child.chestId&&o.kind==(child.jar?"jar":"chest");});
-        if(!state.error.empty()||entry==state.objects.end()){previewPath.resize(i);forwardPath.clear();break;}
-        if(child.jar){if(entry->target!=child.jarName){previewPath.resize(i);forwardPath.clear();break;}continue;}
-        bool wet=peek::wetAt(state,entry->x,entry->y);
-        if(child.room!=entry->target||child.wet!=wet){child.room=entry->target;child.wet=wet;previewPath.resize(i+1);forwardPath.clear();break;}
-    }
+    revalidatePath(owner);
     if(open||(clicked&&clickPopout)){if(open&&peek::previewWindowOpen())peek::closePreviewWindow();else if(!peek::showPreviewWindow(gameWindow))log("Preview window creation failed: %lu",GetLastError());}
-    const auto step=previewPath.back();bool live=step.ancestors>=0;
+    const auto step=previewPath.back();
     previewWet=step.wet;
     const auto key=stepKey(step);
     if(key!=previewKey){
-        // A paradox room the script leaves out is built empty, as the game builds it.
-        templatePreview=peek::loadSnapshot(gameRoot,missionPath,step.room,previewWet,step.timeline.empty()?timelinePlayed:step.timeline,paradoxRoom(step)||step.jar);
+        // A room built alone that the script leaves out is built empty, as the game builds it.
+        templatePreview=peek::loadSnapshot(gameRoot,missionPath,step.room,previewWet,stepTimeline(step),aloneRoom(step)||step.jar);
         // Spawn("player") and Spawn("yield") make a flame only in a room built with another below
-        // it (0x43E8CF, 0x43EB74), and a paradox room is built alone.
-        if(paradoxRoom(step))templatePreview.objects.erase(std::remove_if(templatePreview.objects.begin(),templatePreview.objects.end(),previewPortal),templatePreview.objects.end());
+        // it (0x43E8CF, 0x43EB74), and a paradox room or a timeline's first room is built alone.
+        if(aloneRoom(step))templatePreview.objects.erase(std::remove_if(templatePreview.objects.begin(),templatePreview.objects.end(),previewPortal),templatePreview.objects.end());
         templatePreview.timeline=step.timeline;previewKey=key;log("Preview %s objects=%zu error=%s",key.c_str(),templatePreview.objects.size(),templatePreview.error.c_str());
     }
-    const auto source=peek::readRoomReference(roomHost,owner,0);
-    if(live)preview=outerRoom(step,owner,templatePreview);
-    else if(step.jar){preview=jarRoom(step,owner,templatePreview);preview.nativeDepth=!step.timeline.empty()?step.depth:source.depth<0?-1:source.depth+step.depth;}
-    else {
-        auto globals=stepGlobals(step,owner);
-        preview=templatePreview;peek::applyGlobals(preview,globals);
-        if(!globals.available&&preview.error.empty())preview.error=globals.error;
-        // A paradox room is the only room left on its stack, and the rooms inside it count from it.
-        preview.nativeDepth=!step.timeline.empty()?step.depth:source.depth<0?-1:source.depth+step.depth;
-    }
+    preview=stepRoom(step,owner,templatePreview);
     peek::requestNativeDestination(roomHost,preview,key,(int)previewPath.size());currentArt=peek::nativeDestinationArt(key);bool nativeArt=currentArt!=nullptr;
     // Reported after the scene exists, because attaching its entities is what would have
     // started a sound. A preview that stays silent is the point, so record that it did.
@@ -538,7 +692,7 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     const std::string status=preview.error.empty()?"":"Preview unavailable: "+preview.error;
     // From the step itself, so a rendered snapshot swapped in above cannot carry an older depth.
     const auto shownDepth=depthLabel(step);
-    if(active)rect(left+(active->x-.18f)*cell,top+(active->y+(active->outward?.98f:.43f))*cell,cell*.36f,2*u,1,.85f,.35f);
+    if(active){peek::Reach r{};peek::reachOf(kindOf(*active),r);rect(left+(active->x-.18f)*cell,top+(active->y+r.underline)*cell,cell*.36f,2*u,1,.85f,.35f);}
     if(peek::previewWindowOpen()){if(currentArt)peek::updatePreviewWindow(*currentArt,preview,step.room,shownDepth,status,stepView(step));return;}
     // Meanwhile a panel that is up stays as it was, and one that is not up yet waits. The held
     // panel takes no clicks: they would be aimed at the room it still shows, not the one opening.
@@ -550,17 +704,20 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     rect(x,y,w,h,.045f,.06f,.1f);outline(x,y,w,h,.72f,.81f,.95f);
     text(x+12*u,y+12*u,"ROOM: "+previewPath.back().room.substr(0,32),1.6f*u);
     float gx=x+12*u,gy=y+48*u;imageQuad(gx,gy,20*s,15*s);
-    // Only the first match is underlined, because that is the one a click enters.
-    const peek::Object* under=nullptr;
-    for(const auto& o:preview.objects)if(o.kind=="chest"||o.kind=="jar"||previewPortal(o)){
-        bool portal=previewPortal(o);float ox=gx+(o.x-.65f)*s,oy=gy+(o.y-(portal?.4f:.9f))*s;
-        if(mouse.x>=ox&&mouse.x<=ox+1.3f*s&&mouse.y>=oy&&mouse.y<=oy+(portal?1.4f:1.55f)*s){rect(gx+(o.x-.18f)*s,gy+(o.y+(portal?.98f:.43f))*s,.36f*s,2*u,1,.85f,.35f);under=&o;break;}
+    // Only the first match is underlined, because that is the one a click enters, and pinned only
+    // when a click there goes somewhere.
+    const peek::Object* under=nullptr;peek::Reach underReach{};
+    for(const auto& o:preview.objects){
+        peek::Reach r{};if(!peek::opensPreview(o)||!peek::reachOf(o.kind,r))continue;
+        const float m=peek::reachMargin;
+        if(mouse.x>=gx+(o.x-r.half-m)*s&&mouse.x<=gx+(o.x+r.half+m)*s&&mouse.y>=gy+(o.y-r.above-m)*s&&mouse.y<=gy+(o.y+r.below+m)*s){under=&o;underReach=r;break;}
     }
     // Pinned, the depth line also answers for what is hovered inside: its depth and room.
     auto depthLine=std::string(pinned?"PINNED ":"HOVER ")+shownDepth;
-    PreviewStep next;auto move=pinned&&under?previewMove(*under,next):PreviewMove::None;
+    PreviewStep next;size_t returnTo=0;auto move=pinned&&under?previewMove(*under,next,returnTo):PreviewMove::None;
+    if(under&&(!pinned||move!=PreviewMove::None))rect(gx+(under->x-.18f)*s,gy+(under->y+underReach.underline)*s,.36f*s,2*u,1,.85f,.35f);
     if(move!=PreviewMove::None){
-        const auto& to=move==PreviewMove::Return?previewPath[previewPath.size()-2]:next;
+        const auto& to=move==PreviewMove::Return?previewPath[returnTo]:next;
         auto hover="   HOVER "+depthLabel(to)+": ";
         size_t fit=(size_t)std::max(0.f,(w-24*u)/(7.2f*u));
         if(depthLine.size()+hover.size()<fit)depthLine+=hover+to.room.substr(0,fit-depthLine.size()-hover.size());
@@ -651,6 +808,8 @@ extern "C" __declspec(dllexport) DWORD WINAPI RecursedPeekInitialize(void*){
     if(*(uintptr_t*)address(0x47ad80)!=(uintptr_t)address(0x411730)){log("Chest vtable mismatch");return 0;}
     if(*(uintptr_t*)address(0x47b0d8)!=(uintptr_t)address(0x415f30)){log("Jar vtable mismatch");return 0;}
     if(!patchPointer((void**)address(0x47b0d8),(void*)jarTransformHook,(void**)&originalJarTransform))return 0;
+    if(*(uintptr_t*)address(0x47acd8)!=(uintptr_t)address(0x410c60)){log("Cauldron vtable mismatch");return 0;}
+    if(!patchPointer((void**)address(0x47acd8),(void*)cauldronTransformHook,(void**)&originalCauldronTransform))return 0;
     if(*(uintptr_t*)address(0x47af24)!=(uintptr_t)address(0x413600)){log("Exit vtable mismatch");return 0;}
     if(!patchPointer((void**)address(0x47af24),(void*)exitTransformHook,(void**)&originalExitTransform))return 0;
     if(!patchPointer((void**)address(0x47ad80),(void*)chestTransformHook,(void**)&originalChestTransform)||!hookRoomBuilder()){log("Game hooks failed");return 0;}

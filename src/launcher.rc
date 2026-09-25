@@ -12,8 +12,8 @@ RECURSEDPEEKPLUGIN RCDATA "..\\build\\recursed_peek.dll"
 RECURSEDPEEKNOTICES RCDATA "..\\THIRD_PARTY_NOTICES.md"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,4,0,0
- PRODUCTVERSION 1,4,0,0
+ FILEVERSION 1,5,0,0
+ PRODUCTVERSION 1,5,0,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -25,11 +25,11 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "FileDescription", "Recursed++ launcher"
-            VALUE "FileVersion",     "1.4.0.0"
+            VALUE "FileVersion",     "1.5.0.0"
             VALUE "InternalName",    "Recursed-Plus-Plus"
             VALUE "OriginalFilename","Recursed-Plus-Plus.exe"
             VALUE "ProductName",     "Recursed++"
-            VALUE "ProductVersion",  "1.4.0.0"
+            VALUE "ProductVersion",  "1.5.0.0"
             VALUE "Comments",        "Starts Recursed with the room inspection mod loaded. Not affiliated with the game's authors."
         END
     END

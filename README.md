@@ -1,6 +1,6 @@
 # Recursed++
 
-A Windows x86 mod that lets you inspect rooms inside chests and jars and look back through return portals, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep. A move you regret can be undone.
+A Windows x86 mod that lets you inspect rooms inside chests and jars, see where cauldrons lead, and look back through return portals, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep. A move you regret can be undone.
 
 [![Video: a preview pinned two rooms deep inside a chest, with the room a click would open three deep named beside it](https://img.youtube.com/vi/WZ-q6HJTNdk/maxresdefault.jpg)](https://youtu.be/WZ-q6HJTNdk)
 
@@ -42,12 +42,12 @@ The launcher's **Advanced** page holds the rest, for the times you want the mod 
 
 | Input | Action |
 | --- | --- |
-| Hover over a chest, jar or return flame | Preview the room it leads to |
+| Hover over a chest, jar, cauldron or return flame | Preview the room it leads to |
 | Left click | Pin the preview in the game window |
 | Shift + left click | Open a separate preview window |
 | O | Move the preview between the game and a separate window |
-| Hover a chest, jar or flame inside a preview pinned in the game window | Show the depth and room a click there opens |
-| Click a chest or jar inside the pinned preview | Explore another level, up to depth 8 |
+| Hover a chest, jar, cauldron or flame inside a preview pinned in the game window | Show the depth and room a click there opens |
+| Click a chest, jar or cauldron inside the pinned preview | Go into the room it leads to, up to eight rooms along |
 | Click a red or green return flame | Look outside the room |
 | Mouse back and forward buttons | Walk the preview history in either direction |
 | Backspace | Go back in preview history; close at the root |
@@ -62,7 +62,7 @@ A gamepad can be connected or switched on at any time, including after the game 
 
 The separate window supports resizing and maximization, preserves a 4:3 image, and displays depth and room name in its title. The separate window accepts shortcuts directly, without IME composition. If an input method intercepts letter keys in the main game, switch to an English layout, or hold Ctrl with O, Q or W. Chests have a small hover underline instead of persistent bounding boxes.
 
-Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. A flame that would cause a paradox, because the chest you came in through is no longer outside, shows the paradox room instead, marked Paradox; rooms inside it count their depth from it. There is currently one shared preview, shown either inline or in one separate window.
+Depth is relative to the room you are playing: `1` is inside, `0` is the current room, and `-1` is outside. A flame that would cause a paradox, because the chest you came in through is no longer outside, shows the paradox room instead, marked Paradox; rooms inside it count their depth from it. A cauldron takes you into another timeline, the one it names; its rooms are marked Other timeline and count their depth from its first room. There is currently one shared preview, shown either inline or in one separate window.
 
 ## Undo
 
@@ -82,7 +82,7 @@ The first level reads the actual chest's wet flag. Deeper levels infer wetness f
 
 An open preview resamples relevant game state on the render thread and redraws at up to 30 Hz. Outside previews read the real room stack, tiles, and entities, so moved or removed objects are reflected. They also show the global objects a room gets back when you walk into it again. Inside previews refresh saved globals and the source chest's liquid state. A changed root destination or liquid branch resets deeper navigation. Live/global chests along a nested path are also revalidated: water changes update the branch and a removed chest returns to its parent. A missing root source or room transition closes the preview. The main game continues running while you inspect.
 
-Ordinary chest entry constructs a fresh room, so local objects inside a hypothetical destination still come from its room script. Outer previews use existing room instances. Jar previews read preserved room instances, keeping their tiles and local objects, and restore saved globals under the original room name. Jars with no saved instance lead to the glitch room. Carried-item branches, consecutive hypothetical entries, and cauldron rules are not fully modeled. Outer objects are reconstructed for display, so orientation and particle phase need not match the original instance exactly. See the [validation notes](docs/validation.md) for tested behavior and remaining GUI checks.
+Ordinary chest entry constructs a fresh room, so local objects inside a hypothetical destination still come from its room script. Outer previews use existing room instances. Jar previews read preserved room instances, keeping their tiles and local objects, and restore saved globals under the original room name. Jars with no saved instance lead to the glitch room. Cauldron previews follow the game's timeline switch: the room a timeline was left in, read where the game put it aside, with the globals it takes back and the paradox it can end in, or the timeline's first room built fresh. Carried-item branches and consecutive hypothetical entries are not fully modeled. Outer objects are reconstructed for display, so orientation and particle phase need not match the original instance exactly. See the [validation notes](docs/validation.md) for tested behavior and remaining GUI checks.
 
 ## Compatibility
 

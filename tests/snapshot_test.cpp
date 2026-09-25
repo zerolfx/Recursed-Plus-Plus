@@ -6,12 +6,33 @@
 #include <cassert>
 #include <iostream>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <regex>
 #include <utility>
 int main(){
  auto jarLab=peek::loadSnapshot("runtime","missions/jar-lab","kept",false);
  assert(jarLab.error.empty()&&jarLab.tileset=="tiles/castle"&&jarLab.tiles[13*20].kind==1);
  assert(jarLab.objects.size()==5&&jarLab.objects[1].kind=="yield"&&jarLab.objects[3].global);
  assert(jarLab.tiles[11*20+17].kind==3);
+ // Cauldron Lab: two's first room, built alone and in two's colours, with its chest, cauldron home,
+ // key and water; and lab, whose cauldron into two is global.
+ auto two=peek::loadSnapshot("runtime","missions/cauldron-lab","two",false,"two",true);
+ assert(two.error.empty()&&two.tileset=="tiles/castle"&&two.objects.size()==4&&two.tiles[11*20+17].kind==3);
+ assert(std::fabs(two.dark[0]-.36f)<1e-6f&&std::fabs(two.light[2]-.10f)<1e-6f);
+ bool home=false;for(auto& o:two.objects)home|=o.kind=="cauldron"&&o.target=="start"&&!o.global;assert(home);
+ auto lab=peek::loadSnapshot("runtime","missions/cauldron-lab","lab",false);
+ bool globalCauldron=false;for(auto& o:lab.objects)globalCauldron|=o.kind=="cauldron"&&o.target=="two"&&o.global;
+ assert(lab.error.empty()&&lab.hasGlobals&&globalCauldron);
+ auto threadlessLab=peek::loadSnapshot("runtime","missions/cauldron-lab","threadless",false,"threadless",true);
+ assert(threadlessLab.error.empty()&&std::fabs(threadlessLab.dark[0]-.03f)<1e-6f);
+ // A stock cauldron level keeps a colour pair for each timeline it switches between.
+ auto library=peek::loadSnapshot("runtime","missions/addon/library1","two",false,"two",true);
+ assert(library.error.empty()&&std::fabs(library.dark[0]-.22f)<1e-6f&&std::fabs(library.light[0]-.44f)<1e-6f);
+ // A timeline without colours of its own takes those of the name that sorts first, as the game
+ // falls back to the leftmost key, whatever room is drawn: start's, not two's.
+ auto elsewhere=peek::loadSnapshot("runtime","missions/cauldron-lab","two",false,"elsewhere",true);
+ assert(elsewhere.error.empty()&&std::fabs(elsewhere.dark[2]-.48f)<1e-6f&&std::fabs(elsewhere.light[2]-.62f)<1e-6f);
  auto a=peek::loadSnapshot("runtime","missions/peek-lab","keyroom",false);
  assert(a.error.empty());assert(a.objects.size()==5);assert(a.tiles[9*20+10].kind==1);
  bool key=false,chest=false,ring=false;for(auto& o:a.objects){key|=o.kind=="key"&&o.x==12;chest|=o.kind=="chest"&&o.target=="pool";ring|=o.kind=="record"&&o.target=="sounds/voices/c5";}assert(key&&chest&&ring);
@@ -99,5 +120,19 @@ int main(){
      if(!r.error.empty())std::cerr<<mission<<" "<<room<<": "<<r.error<<"\n";assert(r.error.empty());paradoxRooms+=!r.objects.empty();}
  }
  std::cout<<"Stock paradox rooms: "<<paradoxRooms<<" defined, the rest empty\n";
+ // Every timeline a stock cauldron names has its first room, which the switch builds alone.
+ size_t cauldronTargets=0;
+ for(const auto& f:std::filesystem::recursive_directory_iterator("runtime/data/missions"))if(f.path().extension()==".lua"){
+   auto mission="missions/"+std::filesystem::relative(f.path(),"runtime/data/missions").generic_string();
+   std::ifstream in(f.path(),std::ios::binary);std::string text((std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
+   static const std::regex spawn(R"re((?:Spawn|Global)\("cauldron",[^,]+,[^,]+,\s*"([^"]+)"\))re");
+   for(std::sregex_iterator m(text.begin(),text.end(),spawn),end;m!=end;++m){
+     const auto timeline=(*m)[1].str();auto r=peek::loadSnapshot("runtime",mission,timeline,false,timeline,true);
+     if(!r.error.empty()||r.objects.empty())std::cerr<<mission<<" "<<timeline<<": "<<r.error<<"\n";
+     assert(r.error.empty()&&!r.objects.empty());++cauldronTargets;
+   }
+ }
+ std::cout<<"Stock cauldron targets: "<<cauldronTargets<<" first rooms loaded\n";
+ assert(cauldronTargets>0);
  std::cout<<"PASS: actual Lua room extraction, object targets, tile mappings, water, stock level, missing room and path rejection\n";
 }

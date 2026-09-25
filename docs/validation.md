@@ -4,6 +4,77 @@ Validated on 2026-09-22 using the supported Windows x86 executable. Most interac
 
 ## CI tests without game files
 
+### Cauldron previews (2026-09-25)
+
+The authored memory fixtures build a stack being played and a stack another timeline was left
+with, and check where a cauldron's switch lands: the same room for the timeline being played,
+taking back a leftover an earlier restore refused and losing a global a solid tile now refuses,
+unless the global cauldron it went in through is refused on the way back; the top room of the
+saved stack, with the globals saved under its name, less the held item and anything a solid tile
+refuses; `threadless` when that room's player finds the cauldron it left through behind it or
+gone, `reject` when that was a chest, and home again while it is held or comes back among the
+globals; a fresh first room for a timeline never left or taken back, with the globals saved under
+its name, including those the room being left puts aside when it has that name. A saved top room
+of the same name as the room being left takes the leftovers already saved first, then the room's
+own. They also read the saved stack's rooms counted out from its top, capture its top
+room, walk out through its flame after the switch into the room below or `reject`, carry a held
+global into that room and leave it there before a green flame, find no flame
+when the switch itself ends in a paradox, and refuse a broken timeline tree.
+
+The game-dependent snapshot test loads Cauldron Lab's rooms in their timelines' colours, the
+first-name fallback for a timeline without colours, and, for each of the 59 cauldrons in stock
+levels, the first room of the timeline it names, built alone as the switch builds it.
+
+Interactive validation used this worktree's build with the isolated runtime, isolated profile and
+file-backed progress, with Steam disabled; no real Steam progress was used, and the save files
+were byte-identical afterwards. Cauldron Lab and Jar Lab were added to the runtime's test menu;
+the runtime's own Preview Lab was left as it was. In Cauldron Lab:
+
+- Hovering the first room's cauldron showed `two` marked Timeline two, in two's colours, with its
+  chest, cauldron, key and water and no flame. Taking the cauldron built exactly that room.
+- Pinned, two's cauldron read "HOVER DEPTH 0: START" and its chest "HOVER TIMELINE TWO DEPTH 1:
+  LAB". Clicking into lab showed its flame and global cauldron in two's colours; the flame led back
+  to two, and two's cauldron to `start` at Depth 0, whose own cauldron went back to the `two` step
+  already on the path. The separate window, titled "Timeline two | two", followed a click on the
+  cauldron to "Depth 0 | start".
+- After the switch, two's cauldron home previewed `start` as it was left, marked Timeline start.
+  After going home, into lab, and through lab's global cauldron into two again, it previewed lab,
+  marked Timeline start depth 1, with the global cauldron back; its flame led to `start` in that
+  timeline. In two's own lab the global cauldron previewed that room at Depth 0.
+- Carrying that cauldron out of two's lab kept the preview on lab, without the cauldron in it.
+  Putting it down turned the preview into `threadless`, marked Paradox. Taking two's cauldron then
+  built `threadless` twice, as the disassembly predicts, and arrived in a room matching the
+  preview.
+- The log recorded no preview errors and no failed audit. The game was closed at the end and no
+  Recursed process remained.
+
+Changed after that run and not yet re-run in the game, so covered only by the build, the fixtures
+and review:
+
+- A cauldron back into a timeline already on the path cut the path back to that step, which forgot
+  the rooms other timelines had been left in; it now shows that step again as a new one, and a
+  flame out of a chest's room shown again goes back into the room that chest was opened from.
+- A cauldron into a timeline that a flame walk into a paradox left behind is no longer offered,
+  since where it leads is not predicted.
+- A cauldron into the timeline being played shows the room with the globals it would put aside and
+  take back: a leftover an earlier restore refused comes back, and one a solid tile now refuses is
+  gone. The Depth 0 preview of two's own lab above was seen before this.
+- A flame out of a room a cauldron returns to takes what is held into that room first, so a global
+  put down before a green flame stays with that room's name.
+- A room in another timeline was marked with the timeline's name from the level script, which the
+  game never shows; it is now marked Other timeline.
+- The preview's own copy of the game's host no longer borrows the name of the timeline being
+  played, and a timeline name of 16 characters or more no longer sends the preview to the stand-in
+  renderer.
+- Inside a pinned preview, only what a click would open is underlined.
+- Chests and jars are hovered where they are drawn: a chest's box now reaches 0.4 below its
+  position and its lid 0.9 above, 0.6 to either side as it is turned, and a jar spans 0.3 above to
+  0.5 below and 0.8 to either side, for its handles.
+- The preview code was reorganised without meaning to change what it does.
+
+The player then played the final build and reported no problems. Which of the changes above that
+play covered was not recorded.
+
 ### Jar previews (2026-09-25)
 
 The authored memory fixtures check saved-jar identity lookup separately from the original
@@ -221,4 +292,4 @@ The local backup verifier confirmed eleven backed-up files and unchanged origina
 
 ## Not covered
 
-Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, preserved jar instances, cauldron transition rules, every native entity destructor, and other executable versions remain outside the verified scope. Jars and cauldrons now render natively; only their state semantics are unverified. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.
+Full ongoing gravity/buoyancy simulation, all global restoration collision cases, carried-item branches, state changes across successive hypothetical entries, including a path that changes a saved stack before a cauldron switches back to it, every native entity destructor, and other executable versions remain outside the verified scope. Jar and cauldron state is checked by the memory fixtures and the interactive runs described above. The gameplay-field audit does not cover every engine field. Unsupported native scenes use resource-based rendering; normal UI omits implementation labels.
