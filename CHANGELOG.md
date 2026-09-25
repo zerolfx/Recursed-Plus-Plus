@@ -16,6 +16,9 @@ landed. Entries describe the behaviour, not the patch.
   preview back to the room outside, and a flame clicked inside a preview is followed the same way.
 - Rooms inside a paradox room count their depth from it, as Paradox depth 1 and deeper, since
   the rooms you came through are left behind.
+- Each release's notes link a VirusTotal scan of its executable and explain why some antivirus
+  software flags it: the launcher loads the mod into the game and hooks the game's functions,
+  which is also what cheats do.
 
 ### Fixed
 

@@ -62,18 +62,64 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only for CHANGELOG.md, whose section for this version becomes the release notes.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: Recursed-Plus-Plus*
           merge-multiple: true
           path: dist
+      - name: Write the antivirus note
+        env:
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        # Scanners flag the executable because it starts the game, loads the mod into it and hooks
+        # the game's functions, which is also what cheats do. The notes say so, and link the
+        # executable's VirusTotal report, which exists once the file has been sent there.
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum dist/Recursed-Plus-Plus.exe | cut -d' ' -f1)
+          scan=""
+          if [ -z "${VIRUSTOTAL_API_KEY:-}" ]; then
+            echo "::warning::VIRUSTOTAL_API_KEY is not set, so these release notes link no VirusTotal scan."
+          elif curl --fail --silent --show-error --retry 3 -H "x-apikey: $VIRUSTOTAL_API_KEY" -F "file=@dist/Recursed-Plus-Plus.exe" https://www.virustotal.com/api/v3/files >/dev/null; then
+            scan="[VirusTotal's scan of this Recursed-Plus-Plus.exe](https://www.virustotal.com/gui/file/$sha). The report fills in over a few minutes after a release."
+          else
+            echo "::warning::VirusTotal did not accept the executable, so these release notes link no scan."
+          fi
+          {
+            echo '<!-- virustotal -->'
+            echo '### Antivirus warnings'
+            echo
+            echo 'Some antivirus software flags Recursed-Plus-Plus.exe. That is a false positive: the launcher starts Recursed, loads the mod into it and hooks many of the game'"'"'s functions in memory, which is also what cheats and some malware do. The source is in this repository, and this release was built from its tag by GitHub Actions.'
+            echo
+            if [ -n "$scan" ]; then echo "$scan"; echo; fi
+            echo "SHA-256 of Recursed-Plus-Plus.exe: \`$sha\`"
+            echo '<!-- /virustotal -->'
+          } > antivirus.md
       - name: Publish the downloads
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         # Re-running a tagged build must not fail on a release that is already there, so the
-        # release is created only when it is missing and the files are replaced either way.
+        # release is created only when it is missing and the files are replaced either way. A
+        # rebuilt executable has another hash, so the antivirus note is replaced in place too.
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/Recursed-Plus-Plus.exe dist/Recursed-Plus-Plus-developer-windows-x86.zip dist/SHA256SUMS.txt --clobber
+          tag="$GITHUB_REF_NAME"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            awk -v v="${tag#v}" 'index($0, "## " v " ") == 1 || $0 == "## " v {on = 1; next} on && /^## / {exit} on {print}' CHANGELOG.md > notes.md
+            printf '\n' >> notes.md
+            cat antivirus.md >> notes.md
+            gh release create "$tag" --title "$tag" --notes-file notes.md --generate-notes
+          fi
+          gh release upload "$tag" dist/Recursed-Plus-Plus.exe dist/Recursed-Plus-Plus-developer-windows-x86.zip dist/SHA256SUMS.txt --clobber
+          gh release view "$tag" --json body --jq .body > old.md
+          python3 - <<'PY'
+          import re
+          body = open("old.md", encoding="utf-8").read()
+          note = open("antivirus.md", encoding="utf-8").read().strip()
+          marked = re.compile(r"<!-- virustotal -->.*?<!-- /virustotal -->", re.S)
+          body = marked.sub(lambda _: note, body) if marked.search(body) else body.rstrip() + "\n\n" + note + "\n"
+          open("new.md", "w", encoding="utf-8").write(body)
+          PY
+          gh release edit "$tag" --notes-file new.md

@@ -20,7 +20,7 @@ That executable is the whole download: it carries the mod inside itself and unpa
 
 **What it does to your installation.** Nothing is written into the game's folder. You play the progress you already have, through Steam, with achievements and cloud saves as they always were; only the graphics and sound settings are kept apart, under `%LOCALAPPDATA%\Recursed++\profile`. The mod is loaded into a game process the launcher starts; it never attaches to a game you started yourself, and starting Recursed through Steam does not load it.
 
-Security software often blocks the mod, because loading code into another process is what a cheat would do. The launcher says so when that happens, and names the files to allow. `%LOCALAPPDATA%Recursed++peek.log` records what the mod did.
+**Antivirus warnings.** Some antivirus software flags the download or blocks the mod. That is a false positive: the launcher starts Recursed, loads the mod into it and hooks many of the game's functions in memory, which is also what cheats and some malware do. Each release links its executable's VirusTotal scan in the release notes, so you can see what the scanners say before running it; the source is all here, and every release is built from its tag by GitHub Actions. When security software gets in the way, the launcher says so and names the files to allow. `%LOCALAPPDATA%\Recursed++\peek.log` records what the mod did.
 
 ## Your progress
 
