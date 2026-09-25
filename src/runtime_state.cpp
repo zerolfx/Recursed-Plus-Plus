@@ -50,6 +50,7 @@ void collect(GlobalState& result, const std::vector<uint32_t>& entities, uintptr
         Object object;
         object.sourceId=e;
         object.kind = entityKind(e);
+        if(object.kind=="jar"&&read<int>(e+0x64)==2)continue;
         object.x = read<float>(e + 8); object.y = read<float>(e + 12); object.global = true;
         if (!std::isfinite(object.x) || !std::isfinite(object.y)) throw std::runtime_error("Invalid object position");
         if (object.kind == "chest" || object.kind == "record" || object.kind == "cauldron" || object.kind == "jar")
@@ -220,12 +221,34 @@ std::string readTimeline(uintptr_t host){
     try {return oldString(host+0x84);}catch(const std::exception&){return {};}
 }
 
-Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,const Snapshot& appearance){
+RoomReference readJarReference(uintptr_t host,uintptr_t sourceRoom,const std::string& jar){
+    RoomReference result;
+    try {
+        auto current=readRoomReference(host,sourceRoom,0);
+        if(!current.error.empty())throw std::runtime_error(current.error);
+        result.name="glitch";result.depth=current.depth+1;
+        if(jar.empty())return result;
+        // map<string, pair<string, Room*>> at +0x74: key +0x10, room name +0x28,
+        // instance +0x40. Entry (0x440380) consumes this node; never cache its pointer.
+        auto head=pointer(host+0x74),node=pointer(head+4);unsigned depth=0;
+        while(node!=head){
+            if(++depth>128||read<uint8_t>(node+13))throw std::runtime_error("Invalid saved jar tree");
+            const auto key=oldString(node+0x10);
+            if(key==jar){
+                result.name=oldString(node+0x28);result.room=pointer(node+0x40);
+                if(!result.room||result.name.empty())throw std::runtime_error("Missing saved jar room");
+                break;
+            }
+            node=pointer(node+(jar<key?0:8));
+        }
+    }catch(const std::exception& e){result={};result.error=e.what();}
+    return result;
+}
+
+static Snapshot captureRoom(uintptr_t host,uintptr_t room,int depth,const Snapshot& appearance){
     Snapshot result=appearance;result.tiles={};result.objects.clear();result.error.clear();result.hasGlobals=false;result.live=true;
     try {
-        auto reference=readRoomReference(host,sourceRoom,ancestors);
-        if(!reference.error.empty())throw std::runtime_error(reference.error);
-        result.nativeDepth=reference.depth;auto room=reference.room;
+        result.nativeDepth=depth;
         if(read<int>(room)!=20||read<int>(room+4)!=15)throw std::runtime_error("Unsupported live room size");
         auto tiles=pointer(room+8),tilesEnd=pointer(room+12);
         if(tilesEnd<tiles||tilesEnd-tiles!=300*12)throw std::runtime_error("Invalid live tiles");
@@ -242,21 +265,56 @@ Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,cons
         for(auto e:pointers(room+0x14)){
             if(e==held||read<uint8_t>(e+0x44))continue;
             auto kind=entityKind(e);
+            if(kind=="jar"&&read<int>(e+0x64)==2)continue;
             // A fizzer is the invisible controller the engine attaches to acid for a few seconds.
             // Its draw transform is a bare ret, so it contributes nothing and must not block a scene.
             if(kind=="player"||kind=="surface"||kind=="fizzer")continue;
-            if(kind=="door")kind=read<uint8_t>(e+0x58)?"yield":"player";
+            if(kind=="door"){
+                // A used flame removes itself on reactivation (0x41329B -> 0x4133B0).
+                // In particular, the green flame used to seal a jar cannot be used again.
+                if(read<uint8_t>(e+0x59))continue;
+                kind=read<uint8_t>(e+0x58)?"yield":"player";
+            }
             if(kind=="crystal"){
                 auto variant=read<int>(e+0x54);if(variant==1)kind="diamond";else if(variant==2)kind="ruby";
             }
             Object object{kind,"",read<float>(e+8),read<float>(e+12),read<uint8_t>(e+0x45)!=0};
             object.sourceId=e;
             if(!std::isfinite(object.x)||!std::isfinite(object.y))throw std::runtime_error("Invalid live object position");
-            // Chest, cauldron and jar keep a room name at +0x4c; a record keeps its voice-clip path there.
+            // Chest/cauldron destinations, jar identities and record paths share +0x4c.
             if(kind=="chest"||kind=="record"||kind=="cauldron"||kind=="jar")object.target=oldString(e+0x4c);
             result.hasGlobals|=object.global;result.objects.push_back(std::move(object));
         }
     }catch(const std::exception& e){result.tiles={};result.objects.clear();result.error=e.what();}
+    return result;
+}
+
+Snapshot readRoomSnapshot(uintptr_t host,uintptr_t sourceRoom,int ancestors,const Snapshot& appearance){
+    auto reference=readRoomReference(host,sourceRoom,ancestors);
+    if(reference.error.empty())return captureRoom(host,reference.room,reference.depth,appearance);
+    Snapshot result;result.error=reference.error;return result;
+}
+
+Snapshot readJarSnapshot(uintptr_t host,uintptr_t sourceRoom,const std::string& jar,const Snapshot& appearance){
+    Snapshot result;
+    try {
+        auto reference=readJarReference(host,sourceRoom,jar);
+        if(!reference.error.empty())throw std::runtime_error(reference.error);
+        if(!reference.room)throw std::runtime_error("The jar no longer contains this room");
+        result=captureRoom(host,reference.room,reference.depth,appearance);
+        if(!result.error.empty())return result;
+        // Re-entry keeps local objects and tiles, then restores globals by the saved room's
+        // original name. Refused globals stay saved, just as in 0x440CD0.
+        auto globals=readGlobals(host,sourceRoom,reference.name);
+        if(!globals.available)throw std::runtime_error(globals.error);
+        auto present=pointers(reference.room+0x14);
+        for(auto object:globals.objects){
+            if(std::find(present.begin(),present.end(),object.sourceId)!=present.end())continue;
+            if(refused(reference.room,(uint32_t)object.sourceId,present))continue;
+            present.push_back((uint32_t)object.sourceId);object.settle=true;
+            result.objects.push_back(std::move(object));result.hasGlobals=true;
+        }
+    }catch(const std::exception& e){result={};result.error=e.what();}
     return result;
 }
 

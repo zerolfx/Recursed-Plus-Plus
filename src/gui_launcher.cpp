@@ -46,14 +46,14 @@ void post(UINT message,WPARAM w,const std::wstring& text){
 const wchar_t* kHelpText=
 L"Controls\r\n"
 L"\r\n"
-L"  Hover a chest or flame    Preview the room it leads to.\r\n"
+L"  Hover a chest, jar or flame    Preview the room it leads to.\r\n"
 L"  Left click                Pin that preview in the game window.\r\n"
 L"  Shift + left click        Open the preview in its own window.\r\n"
 L"  O                         Move the preview between the game and that window.\r\n"
-L"  Hover a chest inside      Show the depth and room a click there opens.\r\n"
+L"  Hover a chest or jar inside      Show the depth and room a click there opens.\r\n"
 L"  a preview pinned in the\r\n"
 L"  game window\r\n"
-L"  Click a chest inside      Go one room deeper, up to eight.\r\n"
+L"  Click a chest or jar inside      Go one room deeper, up to eight.\r\n"
 L"  Click a red or green      Look at the room outside this one.\r\n"
 L"  flame inside\r\n"
 L"  Mouse back and forward    Walk the rooms you have looked at, both ways.\r\n"
@@ -323,7 +323,7 @@ LRESULT CALLBACK proc(HWND window,UINT message,WPARAM w,LPARAM l){
     case kLaunched:{
         std::unique_ptr<wchar_t,decltype(&free)> text((wchar_t*)l,free);
         setBusy(false);
-        if(w)say(L"Running. Hover a chest in the game to look inside it.");
+        if(w)say(L"Running. Hover a chest or jar in the game to look inside it.");
         else {say(L"The game did not start.");MessageBoxW(window,text.get(),L"Recursed++",MB_OK|MB_ICONWARNING);}
         return 0;}
     case kSteamSaves:{

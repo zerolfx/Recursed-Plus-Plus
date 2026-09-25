@@ -3,6 +3,18 @@
 What changed for someone playing with this mod, newest first. Dates are the day the change
 landed. Entries describe the behaviour, not the patch.
 
+## Unreleased
+
+## 1.4.0 - 2026-09-25
+
+### Added
+
+- Hover a jar to preview the room it contains, click to pin it, or open it in a separate
+  window. Jars inside previews can be explored with the same navigation as chests.
+- Jar previews preserve the room's saved layout, water and local objects, and include the
+  global objects it can take back on entry. The green flame used to seal the jar is gone
+  when it is reopened, and the preview reflects that. An unused jar previews the glitch room.
+
 ## 1.3.0 - 2026-09-25
 
 ### Added

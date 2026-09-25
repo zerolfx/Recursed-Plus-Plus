@@ -13,6 +13,9 @@ struct GlobalState {
 GlobalState readGlobals(uintptr_t host, uintptr_t sourceRoom, const std::string& target);
 struct RoomReference {uintptr_t room=0;std::string name,error;int depth=-1;};
 RoomReference readRoomReference(uintptr_t host,uintptr_t sourceRoom,int ancestors);
+// A jar names a saved instance, not a Lua room. An unused name enters the glitch room.
+RoomReference readJarReference(uintptr_t host,uintptr_t sourceRoom,const std::string& jar);
+Snapshot readJarSnapshot(uintptr_t host,uintptr_t sourceRoom,const std::string& jar,const Snapshot& appearance);
 // Where walking out through a flame leads. The room below takes the player back only if what
 // its player went in through is still in it once the room has taken its globals back, or is
 // carried out; otherwise the game leaves the whole stack behind and builds a paradox room.

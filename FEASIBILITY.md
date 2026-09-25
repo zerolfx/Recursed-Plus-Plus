@@ -53,6 +53,20 @@ Existing ancestors are sampled by stack record, not by room name. Native tile in
 
 ## Exits and paradoxes
 
+Jar draw-transform slot `0x47B0D8` calls `0x415F30`; the preview observes it alongside the
+chest transform. Jar+0x4C is an identity, not a script room name. Jar+0x64 = 2 marks a spent
+jar, which is removed on its next update and must not offer a preview.
+
+The saved-jar map at host+0x74 is `map<string, pair<string, Room*>>`: node key +0x10,
+original room name +0x28, Room pointer +0x40. Jar entry `0x440380` appends the saved pair to
+the stack, erases the map node, restores globals by the original room name, and reactivates
+the instance. An absent key builds `glitch` fresh and dry. Preview reads resolve the map
+again each frame, copy the saved tiles and local positions, and include globals whose
+positions pass the room's restoration collision check. No map node or saved Room pointer
+is retained between frames, and jar wetness never selects a fresh Lua branch. Door+0x59
+marks a used flame; its attach path at `0x41329B` removes it at `0x4133B0`, so the green
+flame that sealed a jar is excluded from the re-entry preview.
+
 Game::update `0x4199C0` drains the top room's event queue through the jump table at `0x419BF8`. A regular flame (Door, `+0x58` = 0) posts event 2 and a green one event 7; both name the held item's identity, which event 2 ignores. Event 2 runs `0x440250`: save the top's globals, destroy it (entities are detached, never deleted), pop, and restore globals into the new top and reactivate it. Event 7 runs `0x4402D0`, which stashes the room in the jar map at host+0x74 instead of destroying it and asserts that the stack is not left empty.
 
 | Address | Role |

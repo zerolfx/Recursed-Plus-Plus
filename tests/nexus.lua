@@ -1,4 +1,5 @@
 function start()
+  Add(10, 4, Peg.Level, 0, "missions/jar-lab", "Jar Lab")
   Add(5, 7.5, Peg.Level, 0, "missions/peek-lab", "Preview Lab")
   Add(10, 7.5, Peg.Level, 0, "missions/basic5", "Chests")
   Add(15, 7.5, Peg.Level, 0, "missions/sewer1", "Flood")

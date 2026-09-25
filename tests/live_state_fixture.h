@@ -48,22 +48,72 @@ inline void testLiveRoomRead(){
  auto destroyed=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
  assert(destroyed.error.empty()&&destroyed.objects.empty());
  chest[0x44]=0;
+ // Jar identities map to preserved instances, with names unrelated to the jar key.
+ Bytes jarHead{},jarNode{},globalHead{},globalNode{},globalBox{},boxDescriptor{},boxLocator{},boxVtable{};
+ word(host.data(),0x74,ptr(jarHead.data()));word(jarHead.data(),4,ptr(jarNode.data()));
+ word(jarNode.data(),0,ptr(jarHead.data()));word(jarNode.data(),8,ptr(jarHead.data()));
+ string(jarNode.data()+0x10,"jar-7");string(jarNode.data()+0x28,"kept");word(jarNode.data(),0x40,ptr(outside.data()));
+ word(host.data(),0x6c,ptr(globalHead.data()));word(globalHead.data(),4,ptr(globalNode.data()));
+ word(globalNode.data(),0,ptr(globalHead.data()));word(globalNode.data(),8,ptr(globalHead.data()));string(globalNode.data()+0x10,"kept");
+ memcpy(boxDescriptor.data()+8,".?AVBox@@",10);word(boxLocator.data(),12,ptr(boxDescriptor.data()));word(boxVtable.data(),0,ptr(boxLocator.data()));word(globalBox.data(),0,ptr(boxVtable.data()+4));
+ globalBox[0x45]=1;real(globalBox.data(),8,6.f);real(globalBox.data(),12,12.f);real(globalBox.data(),0x28,.3f);real(globalBox.data(),0x2c,.3f);
+ uint32_t boxId=ptr(globalBox.data());word(globalNode.data(),0x28,ptr(&boxId));word(globalNode.data(),0x2c,ptr(&boxId+1));word(globalNode.data(),0x30,ptr(&boxId+1));
+ auto jar=peek::readJarReference(ptr(host.data()),ptr(inside.data()),"jar-7");
+ assert(jar.error.empty()&&jar.name=="kept"&&jar.room==ptr(outside.data())&&jar.depth==2);
+ auto savedJar=peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance);
+ assert(savedJar.error.empty()&&savedJar.live&&savedJar.objects.size()==2&&savedJar.objects[0].x==11.f);
+ assert(savedJar.objects[1].sourceId==boxId&&savedJar.objects[1].settle&&savedJar.hasGlobals);
+ assert(savedJar.tiles[0].kind==3); // Stored water is independent of the jar's surroundings.
+ real(chest.data(),8,7.f);
+ auto changedJar=peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance);
+ assert(changedJar.error.empty()&&changedJar.objects[0].x==7.f&&savedJar.objects[0].x==11.f);
+ real(globalBox.data(),12,13.5f);
+ auto blockedJar=peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance);
+ assert(blockedJar.error.empty()&&blockedJar.objects.size()==1); // A global inside solid tiles stays saved.
+ real(globalBox.data(),12,12.f);word(context.data(),4,boxId);
+ assert(peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance).objects.size()==1);
+ word(context.data(),4,0);globalBox[0x44]=1;
+ assert(peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance).objects.size()==1);
+ globalBox[0x44]=0;
+ auto unused=peek::readJarReference(ptr(host.data()),ptr(inside.data()),"unused");
+ assert(unused.error.empty()&&!unused.room&&unused.name=="glitch");
+ word(jarHead.data(),4,ptr(jarHead.data())); // Consuming the jar removes the saved node.
+ assert(!peek::readJarReference(ptr(host.data()),ptr(inside.data()),"jar-7").room);
+ auto consumed=peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance);
+ assert(!consumed.error.empty()&&consumed.objects.empty());
+ word(jarHead.data(),4,ptr(jarNode.data()));word(jarNode.data(),0x40,0);
+ assert(!peek::readJarReference(ptr(host.data()),ptr(inside.data()),"jar-7").error.empty());
+ assert(!peek::readJarReference(ptr(host.data()),ptr(outside.data()),"jar-7").error.empty());
+ word(jarNode.data(),0x40,ptr(outside.data()));word(jarNode.data(),0,ptr(jarNode.data()));
+ assert(!peek::readJarReference(ptr(host.data()),ptr(inside.data()),"aaa").error.empty());
  memcpy(descriptor.data()+8,".?AVDoor@@",11);chest[0x58]=0;
  auto red=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
  assert(red.error.empty()&&red.objects.size()==1&&red.objects[0].kind=="player");
  chest[0x58]=1;
  auto green=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
  assert(green.error.empty()&&green.objects[0].kind=="yield");
+ chest[0x59]=1;
+ auto spentFlame=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
+ assert(spentFlame.error.empty()&&spentFlame.objects.empty());
+ // The flame that sealed a jar is still in the saved vector, but disappears on re-entry.
+ word(jarNode.data(),0,ptr(jarHead.data()));
+ auto sealed=peek::readJarSnapshot(ptr(host.data()),ptr(inside.data()),"jar-7",appearance);
+ assert(sealed.error.empty()&&sealed.objects.size()==1&&sealed.objects[0].kind=="box");
+ chest[0x59]=0;
  // Record stores its voice-clip path where Chest stores its destination room.
  memcpy(descriptor.data()+8,".?AVRecord@@",13);
  auto record=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
  assert(record.error.empty()&&record.objects.size()==1&&record.objects[0].kind=="record"&&record.objects[0].target=="inside");
- // Cauldrons and jars keep a room name at the same offset, and must not lose it.
+ // Cauldron destinations and jar identities share the same string offset.
  for(const char* rtti:{".?AVCauldron@@",".?AVJar@@"}){
   memcpy(descriptor.data()+8,rtti,strlen(rtti)+1);
   auto vessel=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
   assert(vessel.error.empty()&&vessel.objects.size()==1&&vessel.objects[0].target=="inside");
  }
+ word(chest.data(),0x64,2);
+ auto spentJar=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);
+ assert(spentJar.error.empty()&&spentJar.objects.empty());
+ word(chest.data(),0x64,1);
  // A fizzer is an invisible transient controller: it must be skipped, not reported.
  memcpy(descriptor.data()+8,".?AVFizzer@@",13);
  auto fizzer=peek::readRoomSnapshot(ptr(host.data()),ptr(inside.data()),1,appearance);

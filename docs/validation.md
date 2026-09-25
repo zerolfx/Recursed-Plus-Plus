@@ -4,6 +4,30 @@ Validated on 2026-09-22 using the supported Windows x86 executable. Most interac
 
 ## CI tests without game files
 
+### Jar previews (2026-09-25)
+
+The authored memory fixtures check saved-jar identity lookup separately from the original
+room name, preserved local positions and water, global restoration and collision rejection,
+held/destroyed globals, removed map entries, invalid room pointers and cyclic map links.
+Spent jars and used return flames are excluded; the flame that sealed a jar is removed by
+the game on re-entry. The fixtures also resample changed positions without mutating earlier
+snapshots. The game-dependent snapshot test checks Jar Lab's tiles, water and objects.
+
+Interactive validation used this worktree's isolated runtime, isolated profile and file-backed
+progress, with Steam disabled. No real Steam progress was used. In Jar Lab, entering `kept`
+and using its green flame produced `jar-1`; hovering and pinning it showed `kept`, including
+its box, restored global key and water. Opening a separate window, following its chest to
+`inner` at Depth 2, Backspace to the jar, and docking all worked. The pin survived putting
+the jar down. Following the jar room's red flame to the outside preview and clicking the jar
+there returned to `kept`. Actually entering the jar closed the old pinned preview.
+
+That re-entry also exposed the used green flame still being drawn in the preview; the
+reactivation path was checked and a regression fixture now verifies its exclusion. The
+final filtering change is covered by fixtures; that specific visual check was not repeated.
+The isolated game and its preview window were closed, and the test process exit was verified.
+Moving a local box before sealing a jar and the unused-jar glitch branch are covered by
+memory fixtures rather than a separate interactive run.
+
 `build/ci_test.exe` uses authored fixtures under `tests/fixtures` and checks:
 
 - Lua room extraction, chest destinations, tile names, and separate frame numbers.

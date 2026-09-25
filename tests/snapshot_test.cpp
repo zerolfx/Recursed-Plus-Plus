@@ -8,6 +8,10 @@
 #include <filesystem>
 #include <utility>
 int main(){
+ auto jarLab=peek::loadSnapshot("runtime","missions/jar-lab","kept",false);
+ assert(jarLab.error.empty()&&jarLab.tileset=="tiles/castle"&&jarLab.tiles[13*20].kind==1);
+ assert(jarLab.objects.size()==5&&jarLab.objects[1].kind=="yield"&&jarLab.objects[3].global);
+ assert(jarLab.tiles[11*20+17].kind==3);
  auto a=peek::loadSnapshot("runtime","missions/peek-lab","keyroom",false);
  assert(a.error.empty());assert(a.objects.size()==5);assert(a.tiles[9*20+10].kind==1);
  bool key=false,chest=false,ring=false;for(auto& o:a.objects){key|=o.kind=="key"&&o.x==12;chest|=o.kind=="chest"&&o.target=="pool";ring|=o.kind=="record"&&o.target=="sounds/voices/c5";}assert(key&&chest&&ring);

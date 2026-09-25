@@ -18,7 +18,7 @@ static void setDpi(UINT dpi){dpiScale=std::max(1.f,dpi/96.f);if(uiFont)DeleteObj
 static std::wstring wide(const std::string& s){int n=MultiByteToWideChar(CP_UTF8,0,s.data(),(int)s.size(),nullptr,0);std::wstring w(n,0);MultiByteToWideChar(CP_UTF8,0,s.data(),(int)s.size(),w.data(),n);return w;}
 static RECT fit(HWND hwnd){RECT r{};GetClientRect(hwnd,&r);int w=std::max(0L,r.right-px(32)),h=std::max(0L,r.bottom-px(144));float scale=std::min(w/20.f,h/15.f);int rw=(int)(scale*20),rh=(int)(scale*15);int x=(r.right-rw)/2,y=px(64)+(h-rh)/2;return {x,y,x+rw,y+rh};}
 static void paint(HWND hwnd){PAINTSTRUCT ps;HDC dc=BeginPaint(hwnd,&ps);RECT r{};GetClientRect(hwnd,&r);HDC buffer=CreateCompatibleDC(dc);HBITMAP b=CreateCompatibleBitmap(dc,std::max(1L,r.right),std::max(1L,r.bottom));auto old=SelectObject(buffer,b);HBRUSH bg=CreateSolidBrush(RGB(14,18,28));FillRect(buffer,&r,bg);DeleteObject(bg);
- SetBkMode(buffer,TRANSPARENT);SetTextColor(buffer,RGB(231,236,247));auto font=SelectObject(buffer,uiFont?uiFont:GetStockObject(DEFAULT_GUI_FONT));RECT top{px(16),px(12),r.right-px(16),px(60)};auto instructions=wide(diagnostic?"Active-room render diagnostic  |  Esc: close":"Click chest: in / fire: out  |  Backspace: back  |  O: dock  |  Esc / right click: close");DrawTextW(buffer,instructions.c_str(),-1,&top,DT_LEFT|DT_WORDBREAK);
+ SetBkMode(buffer,TRANSPARENT);SetTextColor(buffer,RGB(231,236,247));auto font=SelectObject(buffer,uiFont?uiFont:GetStockObject(DEFAULT_GUI_FONT));RECT top{px(16),px(12),r.right-px(16),px(60)};auto instructions=wide(diagnostic?"Active-room render diagnostic  |  Esc: close":"Click chest or jar: in / fire: out  |  Backspace: back  |  O: dock  |  Esc / right click: close");DrawTextW(buffer,instructions.c_str(),-1,&top,DT_LEFT|DT_WORDBREAK);
  imageRect=fit(hwnd);if(!art.pixels.empty()&&imageRect.right>imageRect.left&&imageRect.bottom>imageRect.top){BITMAPINFO bmi{};bmi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);bmi.bmiHeader.biWidth=art.width;bmi.bmiHeader.biHeight=-art.height;bmi.bmiHeader.biPlanes=1;bmi.bmiHeader.biBitCount=32;bmi.bmiHeader.biCompression=BI_RGB;SetStretchBltMode(buffer,COLORONCOLOR);StretchDIBits(buffer,imageRect.left,imageRect.top,imageRect.right-imageRect.left,imageRect.bottom-imageRect.top,0,0,art.width,art.height,art.pixels.data(),&bmi,DIB_RGB_COLORS,SRCCOPY);}
  RECT bottom{px(16),r.bottom-px(70),r.right-px(16),r.bottom-px(4)};auto status=wide(info);SetTextColor(buffer,RGB(170,189,211));DrawTextW(buffer,status.c_str(),-1,&bottom,DT_LEFT|DT_WORDBREAK);SelectObject(buffer,font);BitBlt(dc,0,0,r.right,r.bottom,buffer,0,0,SRCCOPY);SelectObject(buffer,old);DeleteObject(b);DeleteDC(buffer);EndPaint(hwnd,&ps);}
 static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){switch(msg){
@@ -29,7 +29,13 @@ static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){switch(msg){
  case WM_DPICHANGED:{setDpi(HIWORD(w));auto r=(RECT*)l;SetWindowPos(hwnd,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);return 0;}
  case WM_CLOSE:actions.push_back({PreviewAction::Close});closePreviewWindow();return 0;
  case WM_KEYDOWN:if(l&(1L<<30))return 0;if(w==VK_ESCAPE){escapeHeld=true;actions.push_back({PreviewAction::Close});closePreviewWindow();}else if(w==VK_BACK)actions.push_back({PreviewAction::Back});else if(w=='O')actions.push_back({PreviewAction::Dock});else if(w=='Q')actions.push_back({PreviewAction::Undo});else if(w=='W')actions.push_back({PreviewAction::UndoSeconds});return 0;
- case WM_LBUTTONDOWN:{auto r=fit(hwnd);float s=(r.right-r.left)/20.f;if(s<=0)return 0;float x=((short)LOWORD(l)-r.left)/s,y=((short)HIWORD(l)-r.top)/s;for(size_t i=0;i<snapshot.objects.size();i++){auto& o=snapshot.objects[i];if(((o.kind=="chest"&&!o.target.empty())||o.kind=="player"||o.kind=="yield")&&x>=o.x-.65f&&x<=o.x+.65f&&y>=o.y-(o.kind=="chest"?.9f:.4f)&&y<=o.y+(o.kind=="chest"?.65f:1.f)){actions.push_back({PreviewAction::Select,o,snapshotView});break;}}return 0;}
+ case WM_LBUTTONDOWN:{auto r=fit(hwnd);float s=(r.right-r.left)/20.f;if(s<=0)return 0;float x=((short)LOWORD(l)-r.left)/s,y=((short)HIWORD(l)-r.top)/s;
+  for(const auto& o:snapshot.objects){
+   const bool container=(o.kind=="chest"&&!o.target.empty())||o.kind=="jar";
+   if((container||o.kind=="player"||o.kind=="yield")&&x>=o.x-.65f&&x<=o.x+.65f&&y>=o.y-(container?.9f:.4f)&&y<=o.y+(container?.65f:1.f)){
+    actions.push_back({PreviewAction::Select,o,snapshotView});break;
+   }
+  }return 0;}
  // The side buttons of a mouse walk the preview history, here as well as over the game.
  case WM_XBUTTONDOWN:actions.push_back({HIWORD(w)==XBUTTON1?PreviewAction::Back:PreviewAction::Forward});return TRUE;
  case WM_XBUTTONUP:return TRUE;

@@ -38,7 +38,7 @@ if ($Kind -ne 'player') {
         'docs/validation.md', 'docs/chest-preview.png', 'docs/outside-preview.png',
         'docs/native-destination.png', 'docs/native-water.png',
         'tools/prepare-runtime.ps1', 'tools/backup-saves.ps1', 'tools/verify-backup.ps1',
-        'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/paradox-lab.lua', 'tests/nexus.lua',
+        'tests/peek-lab.lua', 'tests/state-lab.lua', 'tests/render-lab.lua', 'tests/paradox-lab.lua', 'tests/jar-lab.lua', 'tests/nexus.lua',
         'AGENTS.md'
     )
     # A file added under tools/, tests/ or docs/ is developer material by default, and silently

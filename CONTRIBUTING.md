@@ -64,6 +64,11 @@ The test menu includes **Preview Lab** (including a room with both return flames
 self-referencing preview, and **Paradox Lab**, where carrying the first room's global chest into the
 attic and putting it down turns the attic's flame into a paradox.
 
+**Jar Lab** has a chest under the starting player. Enter it, then use the green flame to
+carry the room out in a jar. The jar should preview the preserved box, global key, water and
+inner chest. Move the box before leaving to compare preserved positions with a fresh chest
+entry. Pin the jar, open its window, and follow the inner chest and return flame.
+
 ## Developer diagnostics
 
 These exist only in a run started with `RECURSED_PEEK_DEV=1`, which **Start-Preview.cmd** and the
