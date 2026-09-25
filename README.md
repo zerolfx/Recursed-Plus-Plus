@@ -2,6 +2,10 @@
 
 A Windows x86 mod that lets you inspect rooms inside chests and look back through return portals, inspired by the visible nesting in Patrick's Parabox. Hover to preview, click to pin, or open a separate window and explore up to eight levels deep. A move you regret can be undone.
 
+[![Video: a preview pinned two rooms deep inside a chest, with the room a click would open three deep named beside it](https://img.youtube.com/vi/WZ-q6HJTNdk/maxresdefault.jpg)](https://youtu.be/WZ-q6HJTNdk)
+
+A minute and a half of it in play, on YouTube: hovering chests, pinning a preview and exploring deeper inside it, then undoing moves.
+
 The preview now uses Recursed's original renderer for terrain, depth-dependent backgrounds, lighting, models, chest particles, key rotation, and water effects. Room state remains approximate; rendering fidelity and entry-state simulation are separate concerns.
 
 ![A chest previewed inside the game, showing the key, lock and chest waiting in the room it leads to](docs/chest-preview.png)
