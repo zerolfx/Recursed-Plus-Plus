@@ -621,12 +621,13 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     // pointed ignores focus: after a close from the separate window, it is what the pointer rests on.
     const bool gameFocused=GetForegroundWindow()==gameWindow;
     ChestView* hovered=nullptr;ChestView* pinnedChest=nullptr;ChestView* pointed=nullptr;
-    // Each one is hovered where the game draws it, with a margin for the pointer.
+    peek::PreviewHitTest hit((mouse.x-left)/cell,(mouse.y-top)/cell,8*u/cell);
+    // Resolve overlapping bounds by proximity, independently of the game's draw order.
     for(auto& c:chests){peek::Reach r{};peek::reachOf(kindOf(c),r);
-        const float x0=left+(c.x-r.half)*cell-8*u,x1=left+(c.x+r.half)*cell+8*u,y0=top+(c.y-r.above)*cell-8*u,y1=top+(c.y+r.below)*cell+8*u;
-        if(mouse.x>=x0&&mouse.x<=x1&&mouse.y>=y0&&mouse.y<=y1){pointed=&c;if(gameFocused&&!overInset)hovered=&c;}
+        if(hit.consider(c.x,c.y,r,c.id))pointed=&c;
         if(c.id==pinnedId)pinnedChest=&c;
     }
+    if(gameFocused&&!overInset)hovered=pointed;
     timelinePlayed=peek::readTimeline(roomHost);
     // Something that leads nowhere a preview can show is not there to hover or keep pinned.
     if(hovered)resolveTarget(*hovered);
@@ -704,14 +705,9 @@ static void drawPreview(POINT mouse,bool clicked,bool back,bool forward,bool ope
     rect(x,y,w,h,.045f,.06f,.1f);outline(x,y,w,h,.72f,.81f,.95f);
     text(x+12*u,y+12*u,"ROOM: "+previewPath.back().room.substr(0,32),1.6f*u);
     float gx=x+12*u,gy=y+48*u;imageQuad(gx,gy,20*s,15*s);
-    // Only the first match is underlined, because that is the one a click enters, and pinned only
-    // when a click there goes somewhere.
-    const peek::Object* under=nullptr;peek::Reach underReach{};
-    for(const auto& o:preview.objects){
-        peek::Reach r{};if(!peek::opensPreview(o)||!peek::reachOf(o.kind,r))continue;
-        const float m=peek::reachMargin;
-        if(mouse.x>=gx+(o.x-r.half-m)*s&&mouse.x<=gx+(o.x+r.half+m)*s&&mouse.y>=gy+(o.y-r.above-m)*s&&mouse.y<=gy+(o.y+r.below+m)*s){under=&o;underReach=r;break;}
-    }
+    // Underline the same object a click enters, using the separate window's selection rules.
+    const auto* under=peek::previewObjectAt(preview.objects,(mouse.x-gx)/s,(mouse.y-gy)/s);
+    peek::Reach underReach{};if(under)peek::reachOf(under->kind,underReach);
     // Pinned, the depth line also answers for what is hovered inside: its depth and room.
     auto depthLine=std::string(pinned?"PINNED ":"HOVER ")+shownDepth;
     PreviewStep next;size_t returnTo=0;auto move=pinned&&under?previewMove(*under,next,returnTo):PreviewMove::None;

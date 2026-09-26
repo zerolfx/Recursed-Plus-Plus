@@ -30,11 +30,8 @@ static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l){switch(msg){
  case WM_CLOSE:actions.push_back({PreviewAction::Close});closePreviewWindow();return 0;
  case WM_KEYDOWN:if(l&(1L<<30))return 0;if(w==VK_ESCAPE){escapeHeld=true;actions.push_back({PreviewAction::Close});closePreviewWindow();}else if(w==VK_BACK)actions.push_back({PreviewAction::Back});else if(w=='O')actions.push_back({PreviewAction::Dock});else if(w=='Q')actions.push_back({PreviewAction::Undo});else if(w=='W')actions.push_back({PreviewAction::UndoSeconds});return 0;
  case WM_LBUTTONDOWN:{auto r=fit(hwnd);float s=(r.right-r.left)/20.f;if(s<=0)return 0;float x=((short)LOWORD(l)-r.left)/s,y=((short)HIWORD(l)-r.top)/s;
-  for(const auto& o:snapshot.objects){
-   Reach reach{};if(!opensPreview(o)||!reachOf(o.kind,reach))continue;
-   const float m=reachMargin;
-   if(x>=o.x-reach.half-m&&x<=o.x+reach.half+m&&y>=o.y-reach.above-m&&y<=o.y+reach.below+m){actions.push_back({PreviewAction::Select,o,snapshotView});break;}
-  }return 0;}
+  if(const auto* o=previewObjectAt(snapshot.objects,x,y))actions.push_back({PreviewAction::Select,*o,snapshotView});
+  return 0;}
  // The side buttons of a mouse walk the preview history, here as well as over the game.
  case WM_XBUTTONDOWN:actions.push_back({HIWORD(w)==XBUTTON1?PreviewAction::Back:PreviewAction::Forward});return TRUE;
  case WM_XBUTTONUP:return TRUE;
@@ -49,20 +46,6 @@ bool showPreviewWindow(HWND parent){if(popup){ShowWindow(popup,SW_RESTORE);SetFo
  ImmAssociateContext(popup,nullptr);ShowWindow(popup,SW_SHOW);SetForegroundWindow(popup);return true;}
 void closePreviewWindow(){if(popup){auto h=popup;popup=nullptr;DestroyWindow(h);if(IsWindow(owner))SetForegroundWindow(owner);}art={};snapshot={};title.clear();info.clear();snapshotView.clear();}
 bool previewWindowOpen(){return popup!=nullptr;}
-bool reachOf(const std::string& kind,Reach& out){
- // A chest's box stands 0.4 below its position and its open lid rises to 0.89 above, and turned by
- // its random yaw the box is up to 1.3 across; a jar runs from its base 0.5 below to its rim 0.3
- // above, and its handles reach 0.63 to 0.89 either side as it is turned; a cauldron's bowl is 1.5
- // across, from its feet 0.4 below to its rim 0.6 above. A flame spans the height of the player it
- // stands for.
- if(kind=="chest")out={.6f,.9f,.4f,.43f};
- else if(kind=="jar")out={.8f,.3f,.5f,.53f};
- else if(kind=="cauldron")out={.75f,.6f,.4f,.43f};
- else if(kind=="player"||kind=="yield")out={.5f,.4f,1.f,.98f};
- else return false;
- return true;
-}
-bool opensPreview(const Object& o){return ((o.kind=="chest"||o.kind=="cauldron")&&!o.target.empty())||o.kind=="jar"||o.kind=="player"||o.kind=="yield";}
 bool previewWindowFocused(){return popup&&GetForegroundWindow()==popup;}
 bool previewEscapeHeld(){if(escapeHeld&&!(GetAsyncKeyState(VK_ESCAPE)&0x8000))escapeHeld=false;return escapeHeld;}
 WindowAction pumpPreviewWindow(){if(popup){MSG msg;while(popup&&PeekMessageW(&msg,popup,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}}if(actions.empty())return {};auto a=actions.front();actions.pop_front();return a;}

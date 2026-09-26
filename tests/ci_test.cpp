@@ -12,6 +12,7 @@
 #include "live_state_fixture.h"
 #include "exit_fixture.h"
 #include "cauldron_fixture.h"
+#include "preview_hit_test.h"
 // The game never sees the storage object; it calls entries of the interface table Steam would
 // have handed it. Declaring the same entries in the same order here tests the offsets the game
 // actually uses, not just the code behind them.
@@ -35,6 +36,7 @@ struct SteamRemoteStorage {
  virtual long long GetFileTimestamp(const char*)=0;
 };
 int main(){
+ testPreviewHit();
  testLiveRoomRead();
  const char* root="tests/fixtures";
  auto dry=peek::loadSnapshot(root,"missions/test","start",false);

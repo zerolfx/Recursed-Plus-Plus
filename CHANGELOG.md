@@ -5,6 +5,14 @@ landed. Entries describe the behaviour, not the patch.
 
 ## Unreleased
 
+## 1.5.1 - 2026-09-26
+
+### Fixed
+
+- Hovering or clicking closely spaced chests, jars, cauldrons and return flames selects the
+  nearest object under the pointer instead of depending on draw order. The same selection
+  rules apply in the game, pinned previews and separate preview windows.
+
 ## 1.5.0 - 2026-09-25
 
 ### Added

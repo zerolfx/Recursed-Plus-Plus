@@ -48,7 +48,7 @@ if ($Kind -ne 'player') {
         'tools/bootstrap.ps1', 'tools/check-repository.ps1', 'tools/package.ps1',
         'tools/disasm.cjs', 'tools/inspect.cjs', 'tools/probe.cpp',
         'tests/ci_test.cpp', 'tests/snapshot_test.cpp', 'tests/render_test.cpp',
-        'tests/live_state_fixture.h', 'tests/exit_fixture.h', 'tests/cauldron_fixture.h', 'tests/fixtures/custom/missions/test.lua',
+        'tests/live_state_fixture.h', 'tests/exit_fixture.h', 'tests/cauldron_fixture.h', 'tests/preview_hit_test.h', 'tests/fixtures/custom/missions/test.lua',
         'tests/fixtures/custom/missions/timelines.lua',
         'tests/fixtures/data/tiles/test.lua'
     )
